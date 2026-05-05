@@ -1,0 +1,94 @@
+#!/bin/bash
+# AIOS Environment - Run commands in Docker with Rust/cargo installed
+# Similar to syz-env in syzkaller project
+#
+# Usage:
+#   ./scripts/aios-env build        # Build the project
+#   ./scripts/aios-env test          # Run tests
+#   ./scripts/aios-env cargo check   # Run arbitrary cargo command
+#   ./scripts/aios-env bash          # Interactive shell
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+IMAGE_NAME="aios-build-env"
+
+# Build Docker image if not exists
+build_image() {
+    if ! docker image inspect "$IMAGE_NAME" > /dev/null 2>&1; then
+        echo "Building Docker image: $IMAGE_NAME"
+        docker build -t "$IMAGE_NAME" "$PROJECT_DIR"
+    fi
+}
+
+# Run command in Docker
+run_docker() {
+    local uid=$(id -u)
+    local gid=$(id -g)
+
+    docker run --rm \
+        -u "$uid:$gid" \
+        -v "$PROJECT_DIR:/aios" \
+        -w /aios \
+        -e HOME=/home/user \
+        "$IMAGE_NAME" \
+        "$@"
+}
+
+# Check if no arguments provided
+if [ $# -eq 0 ]; then
+    echo "Usage: $0 <command> [args...]"
+    echo ""
+    echo "Commands:"
+    echo "  build        Build the project (cargo build)"
+    echo "  test         Run tests (cargo test)"
+    echo "  check        Type check (cargo check)"
+    echo "  run          Run in QEMU (make run)"
+    echo "  bash         Interactive shell"
+    echo "  cargo <args> Run arbitrary cargo command"
+    echo ""
+    echo "Examples:"
+    echo "  $0 build"
+    echo "  $0 cargo check --all-features"
+    echo "  $0 bash"
+    exit 1
+fi
+
+build_image
+
+case "$1" in
+    build)
+        shift
+        run_docker cargo build "$@"
+        ;;
+    test)
+        shift
+        run_docker cargo test "$@"
+        ;;
+    check)
+        shift
+        run_docker cargo check "$@"
+        ;;
+    run)
+        shift
+        run_docker make run "$@"
+        ;;
+    bash)
+        docker run --rm -u "$(id -u):$(id -g)" \
+            -v "$PROJECT_DIR:/aios" \
+            -w /aios \
+            -e HOME=/home/user \
+            --cap-add=all \
+            --privileged \
+            -it "$IMAGE_NAME" \
+            bash
+        ;;
+    cargo)
+        shift
+        run_docker cargo "$@"
+        ;;
+    *)
+        run_docker "$@"
+        ;;
+esac
