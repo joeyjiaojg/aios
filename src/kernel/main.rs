@@ -43,7 +43,7 @@ pub extern "C" fn _start(boot_info: &'static boot_info::BootInfo) -> ! {
     crate::kernel::memory::init(
         boot_info.memory_map.entries as *mut u8,
         boot_info.memory_map.len(),
-        0x100000, // TODO: Calculate from actual memory map
+        boot_info.memory_map.calculate_kernel_end(), // Use actual memory map
     );
 
     // Initialize virtual memory manager
