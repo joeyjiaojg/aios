@@ -11,8 +11,7 @@ use x86_64::VirtAddr;
 #[global_allocator]
 static ALLOCATOR: LockedHeap = LockedHeap::empty();
 
-/// Heap start address
-pub const HEAP_START: u64 = 0x4444_4444_0000;
+// HEAP_START is defined in vmm.rs with correct kernel virtual address
 /// Heap size (1 MB)
 pub const HEAP_SIZE: usize = 1024 * 1024;
 
@@ -22,9 +21,10 @@ pub const HEAP_SIZE: usize = 1024 * 1024;
 /// Must only be called once during boot
 pub unsafe fn init() {
     use x86_64::structures::paging::{Mapper, Page, Size4KiB, PageTableFlags};
+    use crate::kernel::vmm::HEAP_START;
 
-    let heap_start_page = Page::containing_address(VirtAddr::new(HEAP_START));
-    let heap_end_page = Page::containing_address(VirtAddr::new(HEAP_START + HEAP_SIZE as u64 - 1));
+    let heap_start_page = Page::containing_address(HEAP_START);
+    let heap_end_page = Page::containing_address(HEAP_START + HEAP_SIZE as u64 - 1);
 
     // Map heap pages
     // For now, assume identity mapping or pre-mapped region

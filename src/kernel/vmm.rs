@@ -159,6 +159,8 @@ pub unsafe fn init_paging(physical_memory_offset: VirtAddr, memory_map: &'static
 /// Translate virtual address to physical address
 pub fn translate_addr(addr: VirtAddr) -> Option<PhysAddr> {
     let (level_4_table, _) = Cr3::read();
+    // SAFETY: level_4_table points to the active L4 page table frame,
+    // and PHYSICAL_MEMORY_OFFSET is the correct offset for virt-to-phys conversion
     let mapper = unsafe {
         OffsetPageTable::new(level_4_table, PHYSICAL_MEMORY_OFFSET)
     };
