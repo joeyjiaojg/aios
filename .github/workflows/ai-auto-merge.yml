@@ -27,20 +27,17 @@ jobs:
 
       - name: Setup opencode
         run: |
-          # Install opencode CLI
           curl -sSL https://opencode.ai/install.sh | bash
           echo "$HOME/.opencode/bin" >> $GITHUB_PATH
 
       - name: AI Code Review
         id: review
         run: |
-          # Get PR diff
           git diff origin/${{ github.base_ref }}...HEAD > /tmp/pr_diff.txt
 
-          # Run AI review via opencode
           REVIEW_RESULT=$(opencode run \
             --model $AI_MODEL \
-            --system-prompt "You are a code reviewer for AIOS, an AI-generated x86_64 operating system written in Rust." \
+            --system-prompt "You are a code reviewer for AIOS, an AI-generated x86_64 operating system written in Rust. Output APPROVED or REJECTED followed by reasoning." \
             "Review the following PR diff. Check for:
             1. Memory safety (no unsafe blocks without justification)
             2. x86_64 architecture correctness
@@ -78,7 +75,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: `## AI Review Result\n\n**Model:** ${process.env.AI_MODEL}\n**Tool:** ${process.env.AI_TOOL}\n**Status:** ${isApproved ? '✅ APPROVED' : '❌ REJECTED'}\n\n<details>\n<summary>Review Details</summary>\n\n\`\`\`\n${reviewOutput}\n\`\`\`\n\n</details>`
+              body: `## AI Review Result\n\n**Model:** ${process.env.AI_MODEL}\n**Tool:** ${process.env.AI_TOOL}\n**Status:** ${isApproved ? '✅ APPROVED' : '❌ REJECTED'}\n\n<details><summary>Details</summary>\n\n\`\`\`\n${reviewOutput}\n\`\`\`\n\n</details>`
             });
 
       - name: Auto Approve
