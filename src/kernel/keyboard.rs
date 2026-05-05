@@ -211,17 +211,26 @@ fn decode_scancode(scancode: u8) -> Option<KeyEvent> {
     let pressed = (scancode & 0x80) == 0;
     let code = scancode & 0x7F;
 
-    let mut modifiers = *MODIFIERS.lock();
-
     match code {
-        0x2A => { modifiers.shift = pressed; *MODIFIERS.lock() = modifiers; return None; }
-        0x36 => { modifiers.shift = pressed; *MODIFIERS.lock() = modifiers; return None; }
-        0x1D => { modifiers.ctrl = pressed; *MODIFIERS.lock() = modifiers; return None; }
-        0x38 => { modifiers.alt = pressed; *MODIFIERS.lock() = modifiers; return None; }
+        0x2A | 0x36 => {
+            let mut mods = MODIFIERS.lock();
+            mods.shift = pressed;
+            return None;
+        }
+        0x1D => {
+            let mut mods = MODIFIERS.lock();
+            mods.ctrl = pressed;
+            return None;
+        }
+        0x38 => {
+            let mut mods = MODIFIERS.lock();
+            mods.alt = pressed;
+            return None;
+        }
         0x3A => {
             if pressed {
-                modifiers.caps_lock = !modifiers.caps_lock;
-                *MODIFIERS.lock() = modifiers;
+                let mut mods = MODIFIERS.lock();
+                mods.caps_lock = !mods.caps_lock;
             }
             return None;
         }
@@ -232,11 +241,13 @@ fn decode_scancode(scancode: u8) -> Option<KeyEvent> {
         return None;
     }
 
-    let ascii = SCANCODE_MAP[code as usize];
+    let modifiers = *MODIFIERS.lock();
 
     if !pressed {
         return None;
     }
+
+    let ascii = SCANCODE_MAP[code as usize];
 
     Some(KeyEvent {
         key_code: code,
@@ -378,5 +389,13 @@ mod tests {
         assert!(!mods.ctrl);
         assert!(!mods.alt);
         assert!(!mods.caps_lock);
+    }
+
+    #[test]
+    fn test_handle_keyboard_interrupt() {
+        handle_keyboard_interrupt(0x1E);
+        assert!(has_key());
+        let event = read_key_event();
+        assert!(event.is_some());
     }
 }
