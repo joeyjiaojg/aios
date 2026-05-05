@@ -1,5 +1,5 @@
 # AI Feature Research + Auto PR Workflow
-# Uses official OpenCode GitHub action
+# Uses OpenCode with free model (no API key required)
 
 name: AI Feature Research
 
@@ -17,44 +17,33 @@ permissions:
   contents: write
   issues: write
   pull-requests: write
-  id-token: write
-
-env:
-  AI_MODEL: "minimax/minimax-m2.5-free"
 
 jobs:
   ai-research:
     runs-on: ubuntu-latest
-    outputs:
-      features: ${{ steps.extract.outputs.features }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Run OpenCode Research
-        uses: anomalyco/opencode/github@latest
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          model: ${{ env.AI_MODEL }}
-          prompt: |
-            Research the latest developments in operating system kernel design.
-            Focus on: ${{ github.event.inputs.topic || 'operating system kernel features' }}
+          node-version: "22"
 
-            Research topics:
-            - New x86_64 features and CPU capabilities
-            - Memory management innovations
-            - Filesystem advances
-            - Network stack optimizations
-            - Security enhancements
-            - Virtualization improvements
+      - name: Install OpenCode
+        run: npm i -g opencode-ai@latest
 
-            Create a GitHub issue for each high-priority feature you find.
-            Title: [Feature] <name>
-            Body: Description, relevance to AIOS, complexity (Low/Medium/High), and AI generation prompt.
-            Label the issues: feature, ai-research
-
-      - name: Extract Features JSON
-        id: extract
+      - name: Research New Features
         run: |
-          echo "features=extracted" >> $GITHUB_OUTPUT
+          TOPIC="${{ github.event.inputs.topic || 'operating system kernel features' }}"
+
+          opencode run -m opencode/minimax-m2.5-free -q \
+            "Research the latest developments in operating system kernel design focusing on: $TOPIC.\n\nTopics: x86_64 features, memory management, filesystems, networking, security, virtualization.\n\nCreate GitHub issues for high-priority features with:\n- Title: [Feature] <name>\n- Body: Description, relevance to AIOS, complexity (Low/Medium/High), and an AI generation prompt to implement it.\n- Labels: feature, ai-research"
+
+      - name: Create Feature Issues from Research
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            // OpenCode may have already created issues via its GitHub integration.
+            // If not, this step can be expanded to parse output and create issues.
