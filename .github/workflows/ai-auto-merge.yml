@@ -34,7 +34,7 @@ jobs:
         run: |
           git diff origin/${{ github.base_ref }}...HEAD > /tmp/pr_diff.txt
 
-          REVIEW_RESULT=$(opencode run -m opencode/minimax-m2.5-free --dangerously-skip-permissions \
+          REVIEW_RESULT=$(opencode run -m opencode/minimax-m2.5-free \
             "You are a code reviewer for AIOS, an AI-generated x86_64 OS written in Rust.\n\nReview the following PR diff:\n- Memory safety (unsafe blocks need justification)\n- x86_64 architecture correctness\n- Consistency with Rust no_std patterns\n- No hardcoded secrets\n- Proper error handling\n- Test coverage\n- Commit message follows AIOS convention (Model/Tool fields)\n\nDiff:\n$(cat /tmp/pr_diff.txt)\n\nOutput exactly 'APPROVED' or 'REJECTED' with brief reasoning.") 2>&1
 
           echo "review_output=$(echo "$REVIEW_RESULT" | tr '\n' ' ')" >> $GITHUB_OUTPUT
