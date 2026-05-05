@@ -69,6 +69,19 @@ jobs:
           REVIEW_OUTPUT: ${{ steps.review.outputs.review_output }}
           IS_APPROVED: ${{ steps.review.outputs.approved }}
 
+      - name: Auto Merge if Approved
+        if: steps.review.outputs.approved == 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.pulls.merge({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              merge_method: 'merge'
+            });
+
   cleanup-branch:
     runs-on: ubuntu-latest
     if: github.event.action == 'closed' && github.event.pull_request.merged == true
