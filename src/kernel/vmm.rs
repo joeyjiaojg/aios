@@ -255,7 +255,7 @@ mod tests {
     #[test]
     fn test_kernel_offsets() {
         assert_eq!(PHYSICAL_MEMORY_OFFSET.as_u64(), 0xffff_8000_0000_0000);
-        assert_eq!(HEAP_START.as_u64(), 0xffff_8000_0000_0000);
+        assert_eq!(HEAP_START.as_u64(), 0xffff_9000_0000_0000);
         assert_eq!(HEAP_SIZE, 100 * 1024 * 1024);
     }
 }
