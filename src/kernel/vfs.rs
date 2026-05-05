@@ -127,6 +127,7 @@ impl VfsNode {
 
 /// Mount table entry
 #[derive(Debug)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct MountEntry {
     pub path: [u8; 64],
     pub node_id: u64,
@@ -193,9 +194,8 @@ impl VfsManager {
     /// # Safety
     /// Caller must ensure the mount point is valid and not already mounted
     pub unsafe fn mount(&mut self, path: &str, node_id: u64) -> Result<(), &'static str> {
-        if self.mount_count >= MAX_MOUNT_POINTS {
-            return Err("Mount table full");
-        }
+        let bytes = path.as_bytes();
+        let len = bytes.len().min(64);
 
         // Check if path is already mounted
         for i in 0..self.mount_count {
@@ -209,25 +209,6 @@ impl VfsManager {
                 }
             }
         }
-
-        // Find empty slot
-        let mut slot = None;
-        for i in 0..MAX_MOUNT_POINTS {
-            if !self.mount_table[i].is_active() {
-                slot = Some(i);
-                break;
-            }
-        }
-
-        if let Some(idx) = slot {
-            let bytes = path.as_bytes();
-            let len = bytes.len().min(64);
-            // SAFETY: Writing into fixed-size array, bounds checked
-            core::ptr::copy_nonoverlapping(
-                bytes.as_ptr(),
-                self.mount_table[idx].path.as_mut_ptr(),
-                len,
-            );
             self.mount_table[idx].node_id = node_id;
             self.mount_table[idx].mounted = true;
             self.mount_count += 1;
@@ -309,10 +290,7 @@ impl VfsManager {
     }
 
     /// Read from a node
-    ///
-    /// # Safety
-    /// Caller must ensure the buffer is valid for writing
-    pub unsafe fn read(&self, path: &str, _offset: u64, _buf: &mut [u8]) -> Result<u64, &'static str> {
+    pub fn read(&self, path: &str, _offset: u64, _buf: &mut [u8]) -> Result<u64, &'static str> {
         let node = self.lookup(path).ok_or("Node not found")?;
 
         if node.node_type != VfsNodeType::File {
@@ -324,10 +302,7 @@ impl VfsManager {
     }
 
     /// Write to a node
-    ///
-    /// # Safety
-    /// Caller must ensure the buffer is valid for reading
-    pub unsafe fn write(&mut self, path: &str, _offset: u64, data: &[u8]) -> Result<u64, &'static str> {
+    pub fn write(&mut self, path: &str, _offset: u64, data: &[u8]) -> Result<u64, &'static str> {
         let node = self.lookup(path).ok_or("Node not found")?;
 
         if node.node_type != VfsNodeType::File {
