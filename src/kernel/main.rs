@@ -55,6 +55,23 @@ pub extern "C" fn _start(boot_info: &'static boot_info::BootInfo) -> ! {
     println!("[INIT] Setting up virtual memory manager...");
     crate::kernel::vmm::init();
 
+    // Initialize 4-level paging with actual memory mapping
+    println!("[INIT] Setting up 4-level paging...");
+    unsafe {
+        crate::kernel::vmm::init_paging(
+            crate::kernel::vmm::PHYSICAL_MEMORY_OFFSET,
+            boot_info.memory_map.iter().map(|r| crate::kernel::vmm::MemoryRegion {
+                start: VirtAddr::new(r.start_addr + crate::kernel::vmm::PHYSICAL_MEMORY_OFFSET.as_u64()),
+                size: r.len,
+                kind: match r.region_type {
+                    boot_info::MemoryRegionType::Usable => crate::kernel::vmm::MemoryRegionKind::Kernel,
+                    _ => crate::kernel::vmm::MemoryRegionKind::Mmio,
+                },
+                flags: PageTableFlags::PRESENT | PageTableFlags::WRITABLE,
+            })
+        );
+    }
+
     // Initialize kernel heap
     println!("[INIT] Initializing kernel heap...");
     // SAFETY: This is called once during boot, and the heap memory has been
