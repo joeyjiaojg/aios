@@ -25,10 +25,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup opencode
-        run: |
-          curl -sSL https://opencode.ai/install.sh | bash
-          echo "$HOME/.opencode/bin" >> $GITHUB_PATH
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install opencode
+        run: npm i -g opencode-ai@latest
 
       - name: AI Code Review
         id: review
@@ -36,7 +39,7 @@ jobs:
           git diff origin/${{ github.base_ref }}...HEAD > /tmp/pr_diff.txt
 
           REVIEW_RESULT=$(opencode run \
-            --model $AI_MODEL \
+            --model "$AI_MODEL" \
             --system-prompt "You are a code reviewer for AIOS, an AI-generated x86_64 operating system written in Rust. Output APPROVED or REJECTED followed by reasoning." \
             "Review the following PR diff. Check for:
             1. Memory safety (no unsafe blocks without justification)
@@ -52,7 +55,9 @@ jobs:
             Diff:
             $(cat /tmp/pr_diff.txt)" 2>&1)
 
-          echo "review_output=$REVIEW_RESULT" >> $GITHUB_OUTPUT
+          echo "review_output<<EOF" >> $GITHUB_OUTPUT
+          echo "$REVIEW_RESULT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
           if echo "$REVIEW_RESULT" | grep -qi "APPROVED"; then
             echo "approved=true" >> $GITHUB_OUTPUT

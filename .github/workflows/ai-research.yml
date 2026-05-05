@@ -36,10 +36,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup opencode
-        run: |
-          curl -sSL https://opencode.ai/install.sh | bash
-          echo "$HOME/.opencode/bin" >> $GITHUB_PATH
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install opencode
+        run: npm i -g opencode-ai@latest
 
       - name: Research New Features
         id: research
@@ -47,7 +50,7 @@ jobs:
           TOPIC="${{ github.event.inputs.topic || 'operating system kernel features' }}"
 
           RESEARCH_OUTPUT=$(opencode run \
-            --model $AI_MODEL \
+            --model "$AI_MODEL" \
             --system-prompt "You are an OS research assistant. Research the latest kernel developments and output JSON." \
             "Research the latest developments in operating system kernel design,
             with focus on: $TOPIC
@@ -78,7 +81,9 @@ jobs:
             Include at least 3 features. Mark complexity as Low/Medium/High.") 2>&1
 
           echo "$RESEARCH_OUTPUT" > research_results.json
-          echo "research_output=$RESEARCH_OUTPUT" >> $GITHUB_OUTPUT
+          echo "research_output<<ENDOFOUTPUT" >> $GITHUB_OUTPUT
+          echo "$RESEARCH_OUTPUT" >> $GITHUB_OUTPUT
+          echo "ENDOFOUTPUT" >> $GITHUB_OUTPUT
 
       - name: Extract Features JSON
         id: extract
@@ -133,10 +138,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup opencode
-        run: |
-          curl -sSL https://opencode.ai/install.sh | bash
-          echo "$HOME/.opencode/bin" >> $GITHUB_PATH
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install opencode
+        run: npm i -g opencode-ai@latest
 
       - name: Download Research Results
         uses: actions/download-artifact@v4
@@ -146,6 +154,9 @@ jobs:
       - name: Generate Code and Create PR
         id: codegen
         run: |
+          # Install jq
+          sudo apt-get update && sudo apt-get install -y jq
+
           # Extract feature for this matrix job
           FEATURE=$(jq '.[${{ matrix.index }}]' research_results.json)
           if [ "$FEATURE" = "null" ] || [ -z "$FEATURE" ]; then
@@ -182,7 +193,7 @@ jobs:
 
           # Generate code using opencode
           opencode run \
-            --model $AI_MODEL \
+            --model "$AI_MODEL" \
             --system-prompt "You are an AI OS developer. Write production-ready Rust code for AIOS, an x86_64 operating system written in no_std Rust. Follow all existing code conventions. Include tests." \
             "$AI_PROMPT
 
@@ -238,8 +249,10 @@ $(echo "$FEATURE" | jq -r '.relevance')
 $(echo "$FEATURE" | jq -r '.references')
 
 ---
-> This PR was automatically created by the AI research workflow." \
-            --label "ai-generated,auto-review")
+> This PR was automatically created by the AI research workflow.")
+
+          # Add labels if they exist (non-fatal)
+          gh pr edit "$PR_URL" --add-label "ai-generated,auto-review" 2>/dev/null || true
 
           echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
           echo "pr_created=true" >> $GITHUB_OUTPUT
