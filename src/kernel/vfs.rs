@@ -29,12 +29,12 @@ pub enum VfsNodeType {
 /// VFS node structure
 #[derive(Debug, Clone)]
 pub struct VfsNode {
-    pub id: u64,
-    pub name: [u8; MAX_NAME_LEN],
-    pub node_type: VfsNodeType,
-    pub size: u64,
-    pub data: [u8; MAX_DATA_SIZE],
-    pub data_size: usize,
+    id: u64,
+    name: [u8; MAX_NAME_LEN],
+    node_type: VfsNodeType,
+    size: u64,
+    data: [u8; MAX_DATA_SIZE],
+    data_size: usize,
     parent_id: Option<u64>,
     is_mounted: bool,
 }
@@ -59,10 +59,30 @@ impl VfsNode {
         }
     }
 
+    /// Get node ID
+    pub fn id(&self) -> u64 {
+        self.id
+    }
+
     /// Get node name as a string
     pub fn name(&self) -> &str {
         let len = self.name.iter().position(|&b| b == 0).unwrap_or(MAX_NAME_LEN);
         core::str::from_utf8(&self.name[..len]).unwrap_or("")
+    }
+
+    /// Get node type
+    pub fn node_type(&self) -> VfsNodeType {
+        self.node_type
+    }
+
+    /// Get node size
+    pub fn size(&self) -> u64 {
+        self.size
+    }
+
+    /// Get data size
+    pub fn data_size(&self) -> usize {
+        self.data_size
     }
 
     /// Set parent node ID
@@ -71,7 +91,7 @@ impl VfsNode {
     }
 
     /// Get parent node ID
-    pub fn parent(&self) -> Option<u64> {
+    pub fn parent_id(&self) -> Option<u64> {
         self.parent_id
     }
 
@@ -165,7 +185,7 @@ impl VfsManager {
 
         let t_idx = target_idx.unwrap();
         if let Some(ref node) = self.nodes[t_idx] {
-            if node.node_type != VfsNodeType::Directory {
+            if node.node_type() != VfsNodeType::Directory {
                 return Err(VfsError::NotADirectory);
             }
             if node.is_mounted() {
@@ -208,7 +228,7 @@ impl VfsManager {
     fn find_node_index(&self, id: u64) -> Option<usize> {
         for i in 0..MAX_NODES {
             if let Some(ref node) = self.nodes[i] {
-                if node.id == id {
+                if node.id() == id {
                     return Some(i);
                 }
             }
@@ -252,7 +272,7 @@ impl VfsManager {
         for i in 0..MAX_NODES {
             if let Some(ref node) = self.nodes[i] {
                 if node.name() == "/" {
-                    current_id = Some(node.id);
+                    current_id = Some(node.id());
                     break;
                 }
             }
@@ -286,10 +306,10 @@ impl VfsManager {
     fn find_child_node(&self, parent_id: u64, name: &[u8]) -> Option<u64> {
         for i in 0..MAX_NODES {
             if let Some(ref node) = self.nodes[i] {
-                if node.parent() == Some(parent_id) {
+                if node.parent_id() == Some(parent_id) {
                     let node_name = node.name();
                     if node_name.as_bytes() == name {
-                        return Some(node.id);
+                        return Some(node.id());
                     }
                 }
             }
@@ -303,11 +323,11 @@ impl VfsManager {
         
         let node = self.nodes[idx].as_ref().ok_or(VfsError::NodeNotFound)?;
         
-        if node.node_type != VfsNodeType::File {
+        if node.node_type() != VfsNodeType::File {
             return Err(VfsError::NotAFile);
         }
 
-        let data_size = node.data_size;
+        let data_size = node.data_size();
         
         if offset >= data_size as u64 {
             return Ok(0);
@@ -327,7 +347,7 @@ impl VfsManager {
         
         let node = self.nodes[idx].as_ref().ok_or(VfsError::NodeNotFound)?;
         
-        if node.node_type != VfsNodeType::File {
+        if node.node_type() != VfsNodeType::File {
             return Err(VfsError::NotAFile);
         }
 
@@ -457,9 +477,9 @@ mod tests {
     #[test]
     fn test_vfs_node_creation() {
         let node = VfsNode::new(1, "test", VfsNodeType::File);
-        assert_eq!(node.id, 1);
+        assert_eq!(node.id(), 1);
         assert_eq!(node.name(), "test");
-        assert_eq!(node.node_type, VfsNodeType::File);
+        assert_eq!(node.node_type(), VfsNodeType::File);
     }
 
     #[test]
@@ -504,24 +524,24 @@ mod tests {
     fn test_parent_child_relationship() {
         let mut mgr = VfsManager::new();
         let parent = mgr.create_node("parent", VfsNodeType::Directory, None).unwrap();
-        let child = mgr.create_node("child", VfsNodeType::File, Some(parent.id));
+        let child = mgr.create_node("child", VfsNodeType::File, Some(parent.id()));
         assert!(child.is_ok());
-        assert_eq!(child.unwrap().parent(), Some(parent.id));
+        assert_eq!(child.unwrap().parent_id(), Some(parent.id()));
     }
 
     #[test]
     fn test_mount_unmount() {
         let mut mgr = VfsManager::new();
         let node = mgr.create_node("mnt", VfsNodeType::Directory, None).unwrap();
-        assert!(mgr.mount(node.id, 1).is_ok());
-        assert!(mgr.unmount(node.id).is_ok());
+        assert!(mgr.mount(node.id(), 1).is_ok());
+        assert!(mgr.unmount(node.id()).is_ok());
     }
 
     #[test]
     fn test_delete_node() {
         let mut mgr = VfsManager::new();
         let node = mgr.create_node("del", VfsNodeType::File, None).unwrap();
-        assert!(mgr.delete_node(node.id).is_ok());
+        assert!(mgr.delete_node(node.id()).is_ok());
         assert!(mgr.lookup(b"/del").is_err());
     }
 
@@ -530,9 +550,9 @@ mod tests {
         let file = VfsNode::new(1, "f", VfsNodeType::File);
         let dir = VfsNode::new(2, "d", VfsNodeType::Directory);
         let symlink = VfsNode::new(3, "s", VfsNodeType::Symlink);
-        assert_eq!(file.node_type, VfsNodeType::File);
-        assert_eq!(dir.node_type, VfsNodeType::Directory);
-        assert_eq!(symlink.node_type, VfsNodeType::Symlink);
+        assert_eq!(file.node_type(), VfsNodeType::File);
+        assert_eq!(dir.node_type(), VfsNodeType::Directory);
+        assert_eq!(symlink.node_type(), VfsNodeType::Symlink);
     }
 
     #[test]
@@ -548,17 +568,17 @@ mod tests {
     fn test_duplicate_mount() {
         let mut mgr = VfsManager::new();
         let node = mgr.create_node("mnt", VfsNodeType::Directory, None).unwrap();
-        assert!(mgr.mount(node.id, 1).is_ok());
-        assert!(mgr.mount(node.id, 2).is_err());
+        assert!(mgr.mount(node.id(), 1).is_ok());
+        assert!(mgr.mount(node.id(), 2).is_err());
     }
 
     #[test]
     fn test_get_node() {
         let mut mgr = VfsManager::new();
         let node = mgr.create_node("get", VfsNodeType::File, None).unwrap();
-        let fetched = mgr.get_node(node.id);
+        let fetched = mgr.get_node(node.id());
         assert!(fetched.is_ok());
-        assert_eq!(fetched.unwrap().id, node.id);
+        assert_eq!(fetched.unwrap().id(), node.id());
     }
 
     #[test]
