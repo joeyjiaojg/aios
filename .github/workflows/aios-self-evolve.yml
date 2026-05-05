@@ -1,0 +1,111 @@
+# AIOS Self-Evolution System
+# Automatically processes Issues, creates PRs, fixes, and merges
+
+name: AIOS Self-Evolve
+
+on:
+  schedule:
+    # Check for new issues every 10 minutes
+    - cron: "*/10 * * * *"
+  issues:
+    types: [opened, labeled]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "Specific issue to process"
+        required: false
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  checks: read
+
+jobs:
+  self-evolve:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install OpenCode
+        run: npm i -g opencode-ai@latest
+
+      - name: Install GitHub CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gh
+
+      - name: Process Next Issue
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Get issue to process
+          ISSUE_NUMBER="${{ github.event.inputs.issue_number }}"
+
+          if [ -z "$ISSUE_NUMBER" ]; then
+            # Get oldest open issue
+            ISSUE_NUMBER=$(gh issue list --state open --json number --jq '.[0].number // empty')
+          fi
+
+          if [ -z "$ISSUE_NUMBER" ]; then
+            echo "No open issues to process"
+            exit 0
+          fi
+
+          echo "Processing Issue #$ISSUE_NUMBER"
+
+          # Get issue details
+          ISSUE_TITLE=$(gh issue view $ISSUE_NUMBER --json title --jq '.title')
+          ISSUE_BODY=$(gh issue view $ISSUE_NUMBER --json body --jq '.body')
+
+          # Create feature branch
+          BRANCH_NAME="feat/auto-issue-$ISSUE_NUMBER"
+          git checkout -b $BRANCH_NAME 2>/dev/null || git checkout $BRANCH_NAME
+
+          # Generate code using OpenCode
+          opencode run -m opencode/minimax-m2.5-free \
+            "Based on GitHub Issue #$ISSUE_NUMBER:
+
+          Title: $ISSUE_TITLE
+
+          Description: $ISSUE_BODY
+
+          Create/modify the necessary code for AIOS x86_64 kernel in Rust no_std.
+          Follow AIOS conventions: Model/Tool/Prompt headers.
+          Add SAFETY comments on unsafe blocks.
+          Create/update files in src/kernel/.
+
+          Output the complete file changes." 2>&1
+
+          # Commit changes
+          git add src/kernel/ || true
+          git commit -m "feat(kernel): auto-implement Issue #$ISSUE_NUMBER
+
+          Model: MiniMax M2.5 Free
+          Tool: opencode
+          Prompt: Auto-implement Issue #$ISSUE_NUMBER" || echo "No changes to commit"
+
+          # Push and create PR
+          git push origin $BRANCH_NAME 2>&1 || true
+
+          # Create PR if not exists
+          PR_EXISTS=$(gh pr list --head $BRANCH_NAME --json number --jq 'length')
+          if [ "$PR_EXISTS" -eq 0 ]; then
+            gh pr create --head $BRANCH_NAME --base master \
+              --title "feat(kernel): auto-implement Issue #$ISSUE_NUMBER" \
+              --body "Automated implementation of Issue #$ISSUE_NUMBER
+
+          Model: MiniMax M2.5 Free
+          Tool: opencode
+          Prompt: Auto-implement from Issue" || true
+          fi
+
+          echo "Issue #$ISSUE_NUMBER processed: Branch $BRANCH_NAME"
