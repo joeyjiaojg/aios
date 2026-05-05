@@ -160,18 +160,18 @@ const SCANCODE_MAP: [Option<char>; SCANCODE_COUNT] = [
     None,       // 0x38 - Alt
     Some(' '),  // 0x39 - Space
     None,       // 0x3A - Caps Lock
-    Some('F1'), // 0x3B - F1
-    Some('F2'), // 0x3C - F2
-    Some('F3'), // 0x3D - F3
-    Some('F4'), // 0x3E - F4
-    Some('F5'), // 0x3F - F5
-    Some('F6'), // 0x40 - F6
-    Some('F7'), // 0x41 - F7
-    Some('F8'), // 0x42 - F8
-    Some('F9'), // 0x43 - F9
-    Some('F10'), // 0x44 - F10
-    Some('F11'), // 0x57 - F11 (scancode extended)
-    Some('F12'), // 0x58 - F12 (scancode extended)
+    None,       // 0x3B - F1
+    None,       // 0x3C - F2
+    None,       // 0x3D - F3
+    None,       // 0x3E - F4
+    None,       // 0x3F - F5
+    None,       // 0x40 - F6
+    None,       // 0x41 - F7
+    None,       // 0x42 - F8
+    None,       // 0x43 - F9
+    None,       // 0x44 - F10
+    None,       // 0x57 - F11 (scancode extended)
+    None,       // 0x58 - F12 (scancode extended)
     None,       // 0x45 - Num Lock (not fully mapped)
     None,       // 0x46 - Scroll Lock
     None,       // 0x47 - Home
