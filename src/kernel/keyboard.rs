@@ -1,6 +1,6 @@
 // AIOS PS/2 Keyboard Driver
 //
-// Model: opencode/minimax-m2.5-free
+// Model: minimax-m2.7
 // Tool: opencode
 // Prompt: Create PS/2 keyboard driver for AIOS x86_64 kernel in Rust no_std.
 //         Implement keyboard initialization, IRQ handler, scancode decoding (set 1),
