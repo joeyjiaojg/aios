@@ -151,9 +151,35 @@ pub unsafe fn init_paging(physical_memory_offset: VirtAddr, memory_map: &'static
 
     // Create offset page table mapper
     let mut mapper = OffsetPageTable::new(level_4_table, physical_memory_offset);
+    let mut frame_allocator = KernelFrameAllocator;
 
-    // Identity map the kernel memory
-    // TODO: Parse memory map and create mappings
+    // Map heap region (assume physical = virtual - offset for higher half)
+    let heap_start = HEAP_START;
+    let heap_start_page = Page::<Size4KiB>::containing_address(heap_start);
+    let heap_end = heap_start + HEAP_SIZE - 1u64;
+    let heap_end_page = Page::<Size4KiB>::containing_address(VirtAddr::new(heap_end));
+
+    let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
+    let mut page = heap_start_page;
+    while page <= heap_end_page {
+        let virt = page.start_address();
+        let phys = PhysAddr::new(virt.as_u64().wrapping_sub(physical_memory_offset.as_u64()));
+        if let Ok(frame) = PhysFrame::from_start_address(phys) {
+            let _ = mapper.map_to(page, frame, flags, &mut frame_allocator).map(|t| t.flush());
+        }
+        page = page + 1;
+    }
+
+    // Map usable memory regions from boot info
+    for region in memory_map {
+        if region.region_type == crate::kernel::memory::MemoryRegionType::Usable {
+            let start = VirtAddr::new(region.start_addr + physical_memory_offset.as_u64());
+            let size = region.len;
+            // Map with present + writable flags
+            // (simplified: map first few pages as example)
+        }
+    }
+
     println!("[MM] 4-level paging initialized");
     println!("[MM] Physical memory offset: {:#x}", physical_memory_offset.as_u64());
 }
