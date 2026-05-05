@@ -15,3 +15,4 @@ pub mod gdt;
 pub mod interrupts;
 pub mod vmm;
 pub mod allocator;
+pub mod task;
