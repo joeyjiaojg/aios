@@ -25,12 +25,12 @@ pub unsafe fn init() {
     let heap_start_page = Page::containing_address(HEAP_START);
     let heap_end_page = Page::containing_address(HEAP_START + HEAP_SIZE as u64 - 1);
 
-    // TODO: Actually map heap pages to frame allocator
-    // For now, assume identity mapping or pre-mapped region
+    // Heap pages are mapped by init_paging() in vmm.rs
 
     // Initialize the heap allocator
-    // SAFETY: HEAP_START is a valid virtual address and HEAP_SIZE is the correct size
-    ALLOCATOR.lock().init(HEAP_START.as_u64() as usize, HEAP_SIZE);
+    // SAFETY: HEAP_START is a valid virtual address mapped by the VMM,
+    // and HEAP_SIZE is the correct size
+    ALLOCATOR.lock().init(HEAP_START.as_u64() as usize, HEAP_SIZE as usize);
 }
 
 /// Allocate with alignment
