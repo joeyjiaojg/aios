@@ -1,0 +1,83 @@
+# AI Feature Research Workflow
+# Automatically researches the web for new features and creates issues
+
+name: AI Feature Research
+
+on:
+  schedule:
+    # Run every Monday at 00:00 UTC
+    - cron: "0 0 * * 1"
+  workflow_dispatch:
+    inputs:
+      topic:
+        description: "Specific topic to research"
+        required: false
+        default: "operating system kernel features"
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  ai-research:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Research New Features
+        uses: anthropic/claude-code@v1
+        with:
+          model: claude-opus-2026
+          prompt: |
+            Research the latest developments in operating system kernel design,
+            with focus on: ${{ github.event.inputs.topic || 'operating system kernel features' }}
+
+            Research topics:
+            - New x86_64 features and CPU capabilities
+            - Memory management innovations
+            - Filesystem advances (e.g., F2FS, Btrfs improvements)
+            - Network stack optimizations (eBPF, XDP, etc.)
+            - Security enhancements (CFI, shadow stack, PKU, etc.)
+            - Virtualization improvements
+            - AI-assisted OS research
+
+            Output a structured research report with:
+            1. Feature name and description
+            2. Why it's relevant for AIOS
+            3. Implementation complexity estimate
+            4. Priority ranking
+            5. References to academic papers, RFCs, or open-source implementations
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - name: Create Feature Issues
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            // Parse research output and create GitHub issues for new features
+            // Each issue should include:
+            // - Feature description
+            // - Implementation plan
+            // - Complexity estimate
+            // - AI generation prompt for initial code
+
+            const researchOutput = process.env.RESEARCH_OUTPUT;
+            const features = JSON.parse(researchOutput);
+
+            for (const feature of features) {
+              if (feature.priority >= 7) {
+                await github.rest.issues.create({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  title: `[Feature] ${feature.name}`,
+                  body: `## ${feature.description}\n\n` +
+                        `**Why AIOS needs this:** ${feature.relevance}\n\n` +
+                        `**Complexity:** ${feature.complexity}\n\n` +
+                        `**AI Generation Prompt:**\n\`\`\`\n${feature.ai_prompt}\n\`\`\`\n\n` +
+                        `**References:**\n${feature.references}`,
+                  labels: ['feature', 'ai-research']
+                });
+              }
+            }

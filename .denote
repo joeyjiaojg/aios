@@ -1,0 +1,36 @@
+# AIOS - AI-Generated Operating System
+
+## Denote
+
+**Project**: AIOS (AI-Generated Operating System)
+**Primary Maintainer**: @joeyjiaojg
+**AI Commit Email**: aios@aios.ai
+**Architecture**: x86_64 (initial)
+**Language**: Rust (no_std)
+
+### Funding Purpose
+
+This project relies heavily on AI API tokens for code generation. All sponsorship funds go directly toward:
+
+1. **AI Model API Access**: Purchasing tokens from Claude, GPT-4, and other models
+2. **Compute Infrastructure**: Running QEMU tests and AI research pipelines
+3. **Model Diversity**: Accessing different models for different subsystems (e.g., Claude for kernel, GPT-4 for drivers)
+
+### Sponsor
+
+👉 [GitHub Sponsors: @joeyjiaojg](https://github.com/sponsors/joeyjiaojg)
+
+### Token Budget
+
+| Priority | Allocation |
+|----------|-----------|
+| Kernel core | 25% |
+| Drivers | 20% |
+| Filesystems | 15% |
+| Network | 15% |
+| Testing | 15% |
+| Feature research | 10% |
+
+---
+
+> AIOS is an experiment in AI-driven software development. We aim to prove that an entire operating system can be built with AI-generated code.
