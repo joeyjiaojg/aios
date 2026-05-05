@@ -40,10 +40,15 @@ pub extern "C" fn _start(boot_info: &'static boot_info::BootInfo) -> ! {
 
     // Initialize memory manager
     println!("[INIT] Setting up physical memory manager...");
+    let kernel_end = boot_info.memory_map.iter()
+        .filter(|r| r.region_type == boot_info::MemoryRegionType::Usable)
+        .map(|r| r.start_addr + r.len)
+        .max()
+        .unwrap_or(0x100000);
     crate::kernel::memory::init(
         boot_info.memory_map.entries as *mut u8,
         boot_info.memory_map.len(),
-        boot_info.memory_map.calculate_kernel_end(), // Use actual memory map
+        (kernel_end / 0x1000 + 1) as usize, // Next page after highest usable memory
     );
 
     // Initialize virtual memory manager
