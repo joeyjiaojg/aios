@@ -54,8 +54,8 @@ pub fn dealloc(ptr: *mut u8, layout: core::alloc::Layout) {
 /// Get heap usage statistics
 pub fn heap_usage() -> (usize, usize) {
     let guard = ALLOCATOR.lock();
-    let total = HEAP_SIZE;
-    let used = total - guard.free_list_size();
+    let total = HEAP_SIZE as usize;
+    let used = guard.used();
     (used, total)
 }
 
