@@ -16,3 +16,4 @@ pub mod interrupts;
 pub mod vmm;
 pub mod allocator;
 pub mod task;
+pub mod keyboard;

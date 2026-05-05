@@ -295,12 +295,7 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStac
     let port = Port::new(0x60);
     let scancode: u8 = unsafe { port.read() };
 
-    // Store scancode in keyboard buffer
-    // SAFETY: Mutex acquisition is safe - we're in interrupt context but
-    // spin::Mutex is designed to handle this safely.
-    if let Ok(mut buffer) = KEYBOARD_BUFFER.try_lock() {
-        let _ = buffer.push(scancode);
-    }
+    crate::keyboard::handle_keyboard_interrupt(scancode);
 
     // SAFETY: Sending EOI to PIC for IRQ1 (interrupt 33) is required
     // to allow subsequent keyboard interrupts.
