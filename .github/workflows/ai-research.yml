@@ -1,5 +1,6 @@
 # AI Feature Research Workflow
 # Automatically researches the web for new features and creates issues
+# Uses opencode + MiniMax M2.5 Free
 
 name: AI Feature Research
 
@@ -18,6 +19,10 @@ permissions:
   contents: write
   issues: write
 
+env:
+  AI_MODEL: "minimax-m2.5-free"
+  AI_TOOL: "opencode"
+
 jobs:
   ai-research:
     runs-on: ubuntu-latest
@@ -25,13 +30,21 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Setup opencode
+        run: |
+          curl -sSL https://opencode.ai/install.sh | bash
+          echo "$HOME/.opencode/bin" >> $GITHUB_PATH
+
       - name: Research New Features
-        uses: anthropic/claude-code@v1
-        with:
-          model: claude-opus-2026
-          prompt: |
-            Research the latest developments in operating system kernel design,
-            with focus on: ${{ github.event.inputs.topic || 'operating system kernel features' }}
+        id: research
+        run: |
+          TOPIC="${{ github.event.inputs.topic || 'operating system kernel features' }}"
+
+          RESEARCH_OUTPUT=$(opencode run \
+            --model $AI_MODEL \
+            --system-prompt "You are an OS research assistant. Research the latest kernel developments and output JSON." \
+            "Research the latest developments in operating system kernel design,
+            with focus on: $TOPIC
 
             Research topics:
             - New x86_64 features and CPU capabilities
@@ -42,29 +55,50 @@ jobs:
             - Virtualization improvements
             - AI-assisted OS research
 
-            Output a structured research report with:
-            1. Feature name and description
-            2. Why it's relevant for AIOS
-            3. Implementation complexity estimate
-            4. Priority ranking
-            5. References to academic papers, RFCs, or open-source implementations
+            Output ONLY a valid JSON array (no markdown, no explanation) with this exact structure:
+            [
+              {
+                \"name\": \"Feature name\",
+                \"description\": \"Brief description\",
+                \"relevance\": \"Why relevant for AIOS\",
+                \"complexity\": \"Low/Medium/High\",
+                \"priority\": 8,
+                \"ai_prompt\": \"Prompt to generate initial implementation\",
+                \"references\": \"Links to papers/RFCs/implementations\"
+              }
+            ]
+
+            Include at least 3 high-priority features (priority >= 7).") 2>&1
+
+          echo "research_output=$RESEARCH_OUTPUT" >> $GITHUB_OUTPUT
+
+          # Save to file for next step
+          echo "$RESEARCH_OUTPUT" > research_results.json
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
 
       - name: Create Feature Issues
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            // Parse research output and create GitHub issues for new features
-            // Each issue should include:
-            // - Feature description
-            // - Implementation plan
-            // - Complexity estimate
-            // - AI generation prompt for initial code
+            const fs = require('fs');
+            let researchOutput = '';
+            try {
+              researchOutput = fs.readFileSync('research_results.json', 'utf8');
+            } catch (e) {
+              researchOutput = process.env.RESEARCH_OUTPUT || '[]';
+            }
 
-            const researchOutput = process.env.RESEARCH_OUTPUT;
-            const features = JSON.parse(researchOutput);
+            let features;
+            try {
+              // Try to extract JSON from the output
+              const jsonMatch = researchOutput.match(/\[[\s\S]*\]/);
+              features = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
+            } catch (e) {
+              console.log('Failed to parse research output:', e);
+              features = [];
+            }
 
             for (const feature of features) {
               if (feature.priority >= 7) {
@@ -79,5 +113,13 @@ jobs:
                         `**References:**\n${feature.references}`,
                   labels: ['feature', 'ai-research']
                 });
+                console.log(`Created issue for: ${feature.name}`);
               }
             }
+
+      - name: Upload Research Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-research-results
+          path: research_results.json
+          retention-days: 30

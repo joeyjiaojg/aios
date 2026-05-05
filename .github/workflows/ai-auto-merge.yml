@@ -1,5 +1,5 @@
 # AI Auto-Review and Merge Workflow
-# Automatically reviews PRs using AI and merges if approved
+# Automatically reviews PRs using opencode + MiniMax M2.5 Free
 
 name: AI Auto-Merge
 
@@ -12,31 +12,77 @@ permissions:
   pull-requests: write
   checks: read
 
+env:
+  AI_MODEL: "minimax-m2.5-free"
+  AI_TOOL: "opencode"
+
 jobs:
   ai-review:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup opencode
+        run: |
+          # Install opencode CLI
+          curl -sSL https://opencode.ai/install.sh | bash
+          echo "$HOME/.opencode/bin" >> $GITHUB_PATH
 
       - name: AI Code Review
-        uses: anthropic/claude-code-review@v1
-        with:
-          model: claude-opus-2026
-          prompt: |
-            Review this PR for AIOS, the AI-generated operating system.
-            Check for:
-            - Memory safety (no unsafe blocks without justification)
-            - x86_64 architecture correctness
-            - Consistency with existing code style
-            - No hardcoded secrets or credentials
-            - Proper error handling
-            - Test coverage for new code
+        id: review
+        run: |
+          # Get PR diff
+          git diff origin/${{ github.base_ref }}...HEAD > /tmp/pr_diff.txt
+
+          # Run AI review via opencode
+          REVIEW_RESULT=$(opencode run \
+            --model $AI_MODEL \
+            --system-prompt "You are a code reviewer for AIOS, an AI-generated x86_64 operating system written in Rust." \
+            "Review the following PR diff. Check for:
+            1. Memory safety (no unsafe blocks without justification)
+            2. x86_64 architecture correctness
+            3. Consistency with Rust no_std patterns
+            4. No hardcoded secrets or credentials
+            5. Proper error handling
+            6. Test coverage for new code
+            7. Commit message follows AIOS convention (Model/Tool fields)
+
+            Output APPROVED or REJECTED with reasoning.
+
+            Diff:
+            $(cat /tmp/pr_diff.txt)" 2>&1)
+
+          echo "review_output=$REVIEW_RESULT" >> $GITHUB_OUTPUT
+
+          if echo "$REVIEW_RESULT" | grep -qi "APPROVED"; then
+            echo "approved=true" >> $GITHUB_OUTPUT
+          else
+            echo "approved=false" >> $GITHUB_OUTPUT
+          fi
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+
+      - name: Post Review Comment
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const reviewOutput = `${{ steps.review.outputs.review_output }}`;
+            const isApproved = `${{ steps.review.outputs.approved }}` === 'true';
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `## AI Review Result\n\n**Model:** ${process.env.AI_MODEL}\n**Tool:** ${process.env.AI_TOOL}\n**Status:** ${isApproved ? '✅ APPROVED' : '❌ REJECTED'}\n\n<details>\n<summary>Review Details</summary>\n\n\`\`\`\n${reviewOutput}\n\`\`\`\n\n</details>`
+            });
 
       - name: Auto Approve
-        if: steps.review.outcome == 'approved'
+        if: steps.review.outputs.approved == 'true'
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -50,7 +96,7 @@ jobs:
             });
 
       - name: Auto Merge
-        if: steps.review.outcome == 'approved'
+        if: steps.review.outputs.approved == 'true'
         uses: pascalgn/automerge-action@v0.16.3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
