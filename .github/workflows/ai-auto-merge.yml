@@ -51,8 +51,8 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const reviewOutput = `${{ steps.review.outputs.review_output }}`;
-            const isApproved = `${{ steps.review.outputs.approved }}` === 'true';
+            const reviewOutput = process.env.REVIEW_OUTPUT || '';
+            const isApproved = (process.env.IS_APPROVED || '') === 'true';
 
             await github.rest.issues.createComment({
               owner: context.repo.owner,
@@ -60,6 +60,9 @@ jobs:
               issue_number: context.issue.number,
               body: `## AI Review Result\n\n**Model:** opencode/minimax-m2.5-free\n**Tool:** opencode\n**Status:** ${isApproved ? '✅ APPROVED' : '❌ REJECTED'}\n\n<details><summary>Details</summary>\n\n\`\`\`\n${reviewOutput}\n\`\`\`\n\n</details>`
             });
+        env:
+          REVIEW_OUTPUT: ${{ steps.review.outputs.review_output }}
+          IS_APPROVED: ${{ steps.review.outputs.approved }}
 
       - name: Auto Approve
         if: steps.review.outputs.approved == 'true'
