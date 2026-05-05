@@ -560,8 +560,8 @@ mod tests {
         let mut mgr = VfsManager::new();
         let dir = mgr.create_node("dir", VfsNodeType::Directory, None).unwrap();
         let mut buf = [0u8; 10];
-        assert!(mgr.read(dir.id, 0, &mut buf).is_err());
-        assert!(mgr.write(dir.id, 0, &[1,2,3]).is_err());
+        assert!(mgr.read(dir.id(), 0, &mut buf).is_err());
+        assert!(mgr.write(dir.id(), 0, &[1,2,3]).is_err());
     }
 
     #[test]
