@@ -1,0 +1,30 @@
+# Branch Cleanup Workflow
+# Deletes head branch after PR is merged
+
+name: Branch Cleanup
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.merged == true
+    steps:
+      - name: Delete merged branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH_NAME="${{ github.event.pull_request.head.ref }}"
+          echo "Deleting branch: $BRANCH_NAME"
+          gh api graphql -f query="
+            mutation {
+              deleteRef(input: {refId: \"${{ github.event.pull_request.headRepository.owner.login }}/${{ github.event.pull_request.headRepository.name }}@refs/heads/${BRANCH_NAME}\"}) {
+                clientMutationId
+              }
+            }
+          " 2>/dev/null || git push origin --delete "$BRANCH_NAME" 2>&1 || echo "Branch already deleted or not found"
