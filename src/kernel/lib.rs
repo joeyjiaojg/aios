@@ -1,8 +1,9 @@
 // AIOS Kernel Library
 //
-// Model: opencode
+// Model: MiniMax M2.5 Free
 // Tool: opencode
-// Prompt: Create kernel library root module exporting core functionality.
+// Prompt: Create kernel library root module exporting core functionality
+//         including VMM and allocator.
 
 #![no_std]
 
@@ -12,3 +13,5 @@ pub mod vga;
 pub mod memory;
 pub mod gdt;
 pub mod interrupts;
+pub mod vmm;
+pub mod allocator;
