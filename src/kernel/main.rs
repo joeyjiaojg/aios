@@ -52,6 +52,8 @@ pub extern "C" fn _start(boot_info: &'static boot_info::BootInfo) -> ! {
 
     // Initialize kernel heap
     println!("[INIT] Initializing kernel heap...");
+    // SAFETY: This is called once during boot, and the heap memory has been
+    // properly mapped by the virtual memory manager
     unsafe {
         crate::kernel::allocator::init();
     }

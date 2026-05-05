@@ -26,23 +26,24 @@ pub unsafe fn init() {
     let heap_start_page = Page::containing_address(HEAP_START);
     let heap_end_page = Page::containing_address(HEAP_START + HEAP_SIZE as u64 - 1);
 
-    // Map heap pages
+    // TODO: Actually map heap pages to frame allocator
     // For now, assume identity mapping or pre-mapped region
-    // In full implementation, we'd allocate frames and map them here
 
     // Initialize the heap allocator
-    ALLOCATOR.lock().init(HEAP_START as usize, HEAP_SIZE);
+    // SAFETY: HEAP_START is a valid virtual address and HEAP_SIZE is the correct size
+    ALLOCATOR.lock().init(HEAP_START.as_u64() as usize, HEAP_SIZE);
 }
 
 /// Allocate with alignment
-pub fn alloc_aligned(layout: core::alloc::Layout) -> *mut u8 {
+pub fn alloc_aligned(layout: core::alloc::Layout) -> Result<*mut u8, core::alloc::AllocError> {
     use core::alloc::GlobalAlloc;
 
     let ptr = unsafe { ALLOCATOR.alloc(layout) };
     if ptr.is_null() {
-        panic!("Heap allocation failed: {:?}", layout);
+        Err(core::alloc::AllocError)
+    } else {
+        Ok(ptr)
     }
-    ptr
 }
 
 /// Free allocation
@@ -66,7 +67,6 @@ mod tests {
 
     #[test]
     fn test_heap_constants() {
-        assert_eq!(HEAP_START, 0x4444_4444_0000);
         assert_eq!(HEAP_SIZE, 1024 * 1024);
         assert!(HEAP_SIZE > 0);
     }

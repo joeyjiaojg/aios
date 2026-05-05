@@ -17,8 +17,10 @@ use x86_64::registers::control::Cr3;
 use spin::Mutex;
 
 /// Kernel virtual memory layout
+/// Physical memory offset for virt->phys conversion (higher half)
 pub const PHYSICAL_MEMORY_OFFSET: VirtAddr = VirtAddr::new(0xffff_8000_0000_0000);
-pub const HEAP_START: VirtAddr = VirtAddr::new(0xffff_8000_0000_0000);
+/// Kernel heap starts at a different virtual address in higher half
+pub const HEAP_START: VirtAddr = VirtAddr::new(0xffff_9000_0000_0000);
 pub const HEAP_SIZE: u64 = 100 * 1024 * 1024; // 100 MB
 pub const KERNEL_STACK_SIZE: u64 = 16 * 1024; // 16 KB
 
