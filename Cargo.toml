@@ -15,6 +15,9 @@ log = "0.4"
 volatile = "0.6"
 x86_64 = "0.15"
 bootloader = "0.9"
+spin = "0.9"
+pic8259 = "0.10"
+boot_info = { path = "src/lib/boot_info" }
 
 [lib]
 name = "aios_kernel"
