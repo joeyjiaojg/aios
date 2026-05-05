@@ -63,28 +63,3 @@ jobs:
         env:
           REVIEW_OUTPUT: ${{ steps.review.outputs.review_output }}
           IS_APPROVED: ${{ steps.review.outputs.approved }}
-
-      - name: Auto Approve
-        if: steps.review.outputs.approved == 'true'
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            github.rest.pulls.createReview({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: context.issue.number,
-              event: 'APPROVE',
-              body: '✅ AI-approved: Code passed automated review via OpenCode free model.'
-            });
-
-      - name: Auto Merge
-        if: steps.review.outputs.approved == 'true'
-        uses: pascalgn/automerge-action@v0.16.3
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          MERGE_LABELS: ""
-          MERGE_METHOD: squash
-          MERGE_COMMIT_MESSAGE: "automatic"
-          MERGE_RETRIES: "5"
-          MERGE_RETRY_SLEEP: "30000"
