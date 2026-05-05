@@ -1,5 +1,5 @@
 # AI Auto-Review and Merge Workflow
-# Automatically reviews PRs using opencode + MiniMax M2.5 Free
+# Uses official OpenCode GitHub action
 
 name: AI Auto-Merge
 
@@ -11,10 +11,7 @@ permissions:
   contents: write
   pull-requests: write
   checks: read
-
-env:
-  AI_MODEL: "minimax-m2.5-free"
-  AI_TOOL: "opencode"
+  id-token: write
 
 jobs:
   ai-review:
@@ -25,23 +22,15 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Run OpenCode Review
+        uses: anomalyco/opencode/github@latest
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         with:
-          node-version: "22"
-
-      - name: Install opencode
-        run: npm i -g opencode-ai@latest
-
-      - name: AI Code Review
-        id: review
-        run: |
-          git diff origin/${{ github.base_ref }}...HEAD > /tmp/pr_diff.txt
-
-          REVIEW_RESULT=$(opencode run \
-            --model "$AI_MODEL" \
-            --system-prompt "You are a code reviewer for AIOS, an AI-generated x86_64 operating system written in Rust. Output APPROVED or REJECTED followed by reasoning." \
-            "Review the following PR diff. Check for:
+          model: minimax/minimax-m2.5-free
+          prompt: |
+            Review this PR for AIOS, the AI-generated x86_64 operating system.
+            Check for:
             1. Memory safety (no unsafe blocks without justification)
             2. x86_64 architecture correctness
             3. Consistency with Rust no_std patterns
@@ -50,41 +39,12 @@ jobs:
             6. Test coverage for new code
             7. Commit message follows AIOS convention (Model/Tool fields)
 
-            Output APPROVED or REJECTED with reasoning.
-
-            Diff:
-            $(cat /tmp/pr_diff.txt)" 2>&1)
-
-          echo "review_output<<EOF" >> $GITHUB_OUTPUT
-          echo "$REVIEW_RESULT" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-          if echo "$REVIEW_RESULT" | grep -qi "APPROVED"; then
-            echo "approved=true" >> $GITHUB_OUTPUT
-          else
-            echo "approved=false" >> $GITHUB_OUTPUT
-          fi
-        env:
-          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
-
-      - name: Post Review Comment
-        if: always()
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const reviewOutput = `${{ steps.review.outputs.review_output }}`;
-            const isApproved = `${{ steps.review.outputs.approved }}` === 'true';
-
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body: `## AI Review Result\n\n**Model:** ${process.env.AI_MODEL}\n**Tool:** ${process.env.AI_TOOL}\n**Status:** ${isApproved ? '✅ APPROVED' : '❌ REJECTED'}\n\n<details><summary>Details</summary>\n\n\`\`\`\n${reviewOutput}\n\`\`\`\n\n</details>`
-            });
+            If the code looks good, output "APPROVED".
+            If there are issues, output "REJECTED" with a list of changes needed.
+            Do NOT make any file edits. Only output the review result.
 
       - name: Auto Approve
-        if: steps.review.outputs.approved == 'true'
+        if: ${{ success() }}
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -94,11 +54,11 @@ jobs:
               repo: context.repo.repo,
               pull_number: context.issue.number,
               event: 'APPROVE',
-              body: '✅ AI-approved: Code passed automated review.'
+              body: '✅ AI-approved: Code passed automated review via OpenCode.'
             });
 
       - name: Auto Merge
-        if: steps.review.outputs.approved == 'true'
+        if: ${{ success() }}
         uses: pascalgn/automerge-action@v0.16.3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

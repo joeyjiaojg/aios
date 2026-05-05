@@ -1,6 +1,5 @@
 # AI Feature Research + Auto PR Workflow
-# Researches features, generates code, and opens PRs automatically
-# Uses opencode + MiniMax M2.5 Free
+# Uses official OpenCode GitHub action
 
 name: AI Feature Research
 
@@ -13,19 +12,15 @@ on:
         description: "Specific topic to research"
         required: false
         default: "operating system kernel features"
-      max_prs:
-        description: "Maximum number of PRs to create"
-        required: false
-        default: "3"
 
 permissions:
   contents: write
   issues: write
   pull-requests: write
+  id-token: write
 
 env:
-  AI_MODEL: "minimax-m2.5-free"
-  AI_TOOL: "opencode"
+  AI_MODEL: "minimax/minimax-m2.5-free"
 
 jobs:
   ai-research:
@@ -36,231 +31,30 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Run OpenCode Research
+        uses: anomalyco/opencode/github@latest
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         with:
-          node-version: "22"
-
-      - name: Install opencode
-        run: npm i -g opencode-ai@latest
-
-      - name: Research New Features
-        id: research
-        run: |
-          TOPIC="${{ github.event.inputs.topic || 'operating system kernel features' }}"
-
-          RESEARCH_OUTPUT=$(opencode run \
-            --model "$AI_MODEL" \
-            --system-prompt "You are an OS research assistant. Research the latest kernel developments and output JSON." \
-            "Research the latest developments in operating system kernel design,
-            with focus on: $TOPIC
+          model: ${{ env.AI_MODEL }}
+          prompt: |
+            Research the latest developments in operating system kernel design.
+            Focus on: ${{ github.event.inputs.topic || 'operating system kernel features' }}
 
             Research topics:
             - New x86_64 features and CPU capabilities
             - Memory management innovations
-            - Filesystem advances (e.g., F2FS, Btrfs improvements)
-            - Network stack optimizations (eBPF, XDP, etc.)
-            - Security enhancements (CFI, shadow stack, PKU, etc.)
+            - Filesystem advances
+            - Network stack optimizations
+            - Security enhancements
             - Virtualization improvements
-            - AI-assisted OS research
 
-            Output ONLY a valid JSON array (no markdown, no explanation):
-            [
-              {
-                \"name\": \"Feature name\",
-                \"description\": \"Brief description\",
-                \"relevance\": \"Why relevant for AIOS\",
-                \"complexity\": \"Low/Medium/High\",
-                \"priority\": 8,
-                \"target_dir\": \"directory where code should go (e.g., src/kernel, src/drivers)\",
-                \"ai_prompt\": \"Prompt to generate initial implementation code\",
-                \"references\": \"Links to papers/RFCs/implementations\"
-              }
-            ]
-
-            Include at least 3 features. Mark complexity as Low/Medium/High.") 2>&1
-
-          echo "$RESEARCH_OUTPUT" > research_results.json
-          echo "research_output<<ENDOFOUTPUT" >> $GITHUB_OUTPUT
-          echo "$RESEARCH_OUTPUT" >> $GITHUB_OUTPUT
-          echo "ENDOFOUTPUT" >> $GITHUB_OUTPUT
+            Create a GitHub issue for each high-priority feature you find.
+            Title: [Feature] <name>
+            Body: Description, relevance to AIOS, complexity (Low/Medium/High), and AI generation prompt.
+            Label the issues: feature, ai-research
 
       - name: Extract Features JSON
         id: extract
         run: |
-          FEATURES=$(cat research_results.json | tr -d '\n')
-          echo "features=$FEATURES" >> $GITHUB_OUTPUT
-
-      - name: Create Feature Issues
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const fs = require('fs');
-            let features;
-            try {
-              const raw = fs.readFileSync('research_results.json', 'utf8');
-              const jsonMatch = raw.match(/\[[\s\S]*\]/);
-              features = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
-            } catch (e) {
-              features = [];
-            }
-
-            for (const feature of features) {
-              if (feature.priority >= 7) {
-                await github.rest.issues.create({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  title: `[Feature] ${feature.name}`,
-                  body: `## ${feature.description}\n\n**Relevance:** ${feature.relevance}\n\n**Complexity:** ${feature.complexity}\n\n**References:** ${feature.references}`,
-                  labels: ['feature', 'ai-research']
-                });
-              }
-            }
-
-      - name: Upload Research Results
-        uses: actions/upload-artifact@v4
-        with:
-          name: ai-research-results
-          path: research_results.json
-          retention-days: 30
-
-  ai-codegen:
-    needs: ai-research
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        index: [0, 1, 2]
-      fail-fast: false
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-
-      - name: Install opencode
-        run: npm i -g opencode-ai@latest
-
-      - name: Download Research Results
-        uses: actions/download-artifact@v4
-        with:
-          name: ai-research-results
-
-      - name: Generate Code and Create PR
-        id: codegen
-        run: |
-          # Install jq
-          sudo apt-get update && sudo apt-get install -y jq
-
-          # Extract feature for this matrix job
-          FEATURE=$(jq '.[${{ matrix.index }}]' research_results.json)
-          if [ "$FEATURE" = "null" ] || [ -z "$FEATURE" ]; then
-            echo "No feature at index ${{ matrix.index }}, skipping."
-            exit 0
-          fi
-
-          NAME=$(echo "$FEATURE" | jq -r '.name')
-          PRIORITY=$(echo "$FEATURE" | jq -r '.priority')
-          COMPLEXITY=$(echo "$FEATURE" | jq -r '.complexity')
-          AI_PROMPT=$(echo "$FEATURE" | jq -r '.ai_prompt')
-          TARGET_DIR=$(echo "$FEATURE" | jq -r '.target_dir')
-
-          # Skip low priority
-          if [ "$PRIORITY" -lt 7 ]; then
-            echo "Priority $PRIORITY < 7, skipping."
-            exit 0
-          fi
-
-          # Skip High complexity features (require manual review planning)
-          if [ "$COMPLEXITY" = "High" ]; then
-            echo "High complexity feature, skipping auto-generation. See research issue."
-            exit 0
-          fi
-
-          BRANCH_NAME="ai/feature-$(echo $NAME | tr '[:upper:] ' '[:lower:]-' | tr -cd '[:alnum:]-' | head -c 50)"
-
-          echo "=== Feature: $NAME ==="
-          echo "Branch: $BRANCH_NAME"
-          echo "Target: $TARGET_DIR"
-
-          # Create and checkout new branch
-          git checkout -b "$BRANCH_NAME"
-
-          # Generate code using opencode
-          opencode run \
-            --model "$AI_MODEL" \
-            --system-prompt "You are an AI OS developer. Write production-ready Rust code for AIOS, an x86_64 operating system written in no_std Rust. Follow all existing code conventions. Include tests." \
-            "$AI_PROMPT
-
-            Requirements:
-            - Target directory: $TARGET_DIR
-            - Use Rust no_std patterns
-            - Include comprehensive unit tests
-            - Add doc comments
-            - Follow AIOS commit convention in code comments
-
-            Write the code and create the necessary files." 2>&1
-
-          # Check if any files were created/modified
-          if [ -z "$(git status --porcelain)" ]; then
-            echo "No files generated, skipping PR."
-            exit 0
-          fi
-
-          # Configure git for AI commits
-          git config user.email "aios@aios.ai"
-          git config user.name "AIOS AI"
-
-          # Add and commit
-          git add -A
-          git commit -m "feat: AI-generated implementation of $NAME
-
-Model: $AI_MODEL
-Tool: $AI_TOOL
-Prompt: $AI_PROMPT
-Research-Index: ${{ matrix.index }}"
-
-          # Push branch
-          git push origin "$BRANCH_NAME"
-
-          # Create PR
-          PR_URL=$(gh pr create \
-            --title "feat: AI-generated $NAME" \
-            --body "## $NAME
-
-**Generated by:** AI Research Pipeline
-**Model:** $AI_MODEL
-**Tool:** $AI_TOOL
-**Complexity:** $COMPLEXITY
-**Target:** $TARGET_DIR
-
-### Description
-$(echo "$FEATURE" | jq -r '.description')
-
-### Relevance
-$(echo "$FEATURE" | jq -r '.relevance')
-
-### References
-$(echo "$FEATURE" | jq -r '.references')
-
----
-> This PR was automatically created by the AI research workflow.")
-
-          # Add labels if they exist (non-fatal)
-          gh pr edit "$PR_URL" --add-label "ai-generated,auto-review" 2>/dev/null || true
-
-          echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
-          echo "pr_created=true" >> $GITHUB_OUTPUT
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
-
-      - name: Summarize
-        if: steps.codegen.outputs.pr_created == 'true'
-        run: |
-          echo "PR created: ${{ steps.codegen.outputs.pr_url }}"
+          echo "features=extracted" >> $GITHUB_OUTPUT
