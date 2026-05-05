@@ -115,6 +115,12 @@ impl TaskManager {
     }
 
     fn allocate_stack(&self) -> Option<usize> {
+        // This is a simplified stack allocation for demo purposes.
+        // In a real kernel, this would:
+        // 1. Allocate physical frames via frame allocator
+        // 2. Map them into virtual memory with proper permissions
+        // 3. Return the top of stack address
+        // For now, we use a fixed formula in higher half
         let base_addr = 0xFFFF_FF00_0000_0000u64
             + (self.task_count as u64 * TASK_STACK_SIZE as u64);
         Some(base_addr as usize + TASK_STACK_SIZE)
@@ -167,11 +173,9 @@ impl TaskManager {
     }
 
     pub fn wake_task(&mut self, id: TaskId) {
-        if let Some(task) = self.get_task(id) {
-            let idx = task.id.as_usize();
-            if idx < self.task_count {
-                self.tasks[idx].set_ready();
-            }
+        let idx = id.as_usize();
+        if idx < self.task_count {
+            self.tasks[idx].set_ready();
         }
     }
 
@@ -217,6 +221,12 @@ pub fn get_current_task_id() -> Option<TaskId> {
 
 #[inline(always)]
 pub fn save_context(_sp: usize) {
+    // SAFETY: This is a stub for context saving.
+    // In a real implementation, this would:
+    // 1. Push all general-purpose registers to stack
+    // 2. Save segment registers if needed
+    // 3. Return the stack pointer to be stored in Task
+    // For now, just a nop placeholder
     unsafe {
         core::arch::asm!("nop", options(nomem, nostack));
     }
@@ -224,6 +234,12 @@ pub fn save_context(_sp: usize) {
 
 #[inline(always)]
 pub fn restore_context(_sp: usize) {
+    // SAFETY: This is a stub for context restoration.
+    // In a real implementation, this would:
+    // 1. Load stack pointer from Task struct
+    // 2. Pop all general-purpose registers
+    // 3. Return to the restored context
+    // For now, just a nop placeholder
     unsafe {
         core::arch::asm!("nop", options(nomem, nostack));
     }
