@@ -11,9 +11,8 @@ use x86_64::VirtAddr;
 #[global_allocator]
 static ALLOCATOR: LockedHeap = LockedHeap::empty();
 
-// HEAP_START is defined in vmm.rs with correct kernel virtual address
-/// Heap size (1 MB)
-pub const HEAP_SIZE: usize = 1024 * 1024;
+// HEAP_START and HEAP_SIZE are defined in vmm.rs
+pub use crate::kernel::vmm::HEAP_SIZE;
 
 /// Initialize the kernel heap
 ///
@@ -67,7 +66,8 @@ mod tests {
 
     #[test]
     fn test_heap_constants() {
-        assert_eq!(HEAP_SIZE, 1024 * 1024);
+        use crate::kernel::vmm::HEAP_SIZE;
+        assert_eq!(HEAP_SIZE, 100 * 1024 * 1024);
         assert!(HEAP_SIZE > 0);
     }
 
