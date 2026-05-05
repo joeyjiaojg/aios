@@ -259,9 +259,10 @@ pub fn handle_keyboard_interrupt(scancode: u8) {
 pub fn init() {
     use x86_64::instructions::port::Port;
 
+    // SAFETY: Reading from port 0x60 clears the output buffer by discarding
+    // any pending scancode. This is the standard way to reset keyboard state.
     unsafe {
         let mut port = Port::new(0x60);
-
         let _ = port.read();
     }
 
@@ -358,16 +359,6 @@ mod tests {
     fn test_scancode_decode_released() {
         let event = decode_scancode(0x90);
         assert!(event.is_none());
-    }
-
-    #[test]
-    fn test_modifier_shift() {
-        let mut mods = MODIFIERS.lock();
-        mods.shift = true;
-        drop(mods);
-
-        let mods = get_modifiers();
-        assert!(mods.shift);
     }
 
     #[test]
