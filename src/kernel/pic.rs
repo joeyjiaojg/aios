@@ -15,7 +15,10 @@ pub static PICS: Mutex<Option<()>> = Mutex::new(None);
 
 /// Initialize the PICs
 pub fn init() {
-    println!("[PIC] Initialized at IRQ {} and {}", PIC_1_OFFSET, PIC_2_OFFSET);
+    println!(
+        "[PIC] Initialized at IRQ {} and {}",
+        PIC_1_OFFSET, PIC_2_OFFSET
+    );
 }
 
 /// Send end of interrupt signal

@@ -7,7 +7,16 @@
 
 #![no_std]
 
-pub fn init() {}
+pub fn init() {
+    unsafe {
+        load_gdt();
+    }
+}
+
+#[inline]
+unsafe fn load_gdt() {
+    core::arch::asm!("lgdt 0");
+}
 
 #[cfg(test)]
 mod tests {

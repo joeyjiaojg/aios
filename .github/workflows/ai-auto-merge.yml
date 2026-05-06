@@ -30,6 +30,21 @@ jobs:
       - name: Install OpenCode
         run: npm i -g opencode-ai@latest
 
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: nightly
+          components: rustfmt, clippy
+
+      - name: Verify cargo installation
+        run: cargo +nightly --version
+
+      - name: Check code formatting
+        run: make fmt
+
+      - name: Run clippy
+        run: make clippy
+
       - name: AI Code Review
         id: review
         timeout-minutes: 5

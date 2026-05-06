@@ -48,16 +48,20 @@ pub fn write_str(s: &str) {
 
 /// Read a byte from an I/O port
 /// # Safety
-/// Reading from arbitrary I/O ports can cause undefined behavior.
+/// Reading from I/O ports is safe for standard x86 ports.
+#[inline]
 unsafe fn inb(port: u16) -> u8 {
-    x86_64::instructions::port::Port::new(port).read()
+    let result: u8;
+    core::arch::asm!("inb %dx, %al", in("dx") port, out("al") result);
+    result
 }
 
 /// Write a byte to an I/O port
 /// # Safety  
-/// Writing to arbitrary I/O ports can cause undefined behavior.
+/// Writing to I/O ports is safe for standard x86 ports.
+#[inline]
 unsafe fn outb(port: u16, data: u8) {
-    x86_64::instructions::port::Port::new(port).write(data);
+    core::arch::asm!("outb %al, %dx", in("dx") port, in("al") data);
 }
 
 pub struct SerialPort;

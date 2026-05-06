@@ -59,12 +59,18 @@ impl Writer {
         self.row = 0;
     }
 
-    pub fn get_col(&self) -> usize { self.col }
-    pub fn get_row(&self) -> usize { self.row }
+    pub fn get_col(&self) -> usize {
+        self.col
+    }
+    pub fn get_row(&self) -> usize {
+        self.row
+    }
 }
 
 impl Default for Writer {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]

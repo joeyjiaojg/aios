@@ -1,11 +1,11 @@
 [package]
-name = "boot_info"
+name = "aios_boot_info"
 version = "0.1.0"
 edition = "2021"
 publish = false
 
 [lib]
-name = "boot_info"
+name = "aios_boot_info"
 path = "lib.rs"
 crate-type = ["staticlib"]
 
@@ -14,11 +14,3 @@ panic = "abort"
 
 [profile.release]
 panic = "abort"
-
-[profile.test]
-panic = "abort"
-
-[profile.doc]
-panic = "abort"
-
-[dependencies]
