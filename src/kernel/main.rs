@@ -1,103 +1,33 @@
 // AIOS Kernel Entry Point
 //
-// Model: MiniMax M2.5 Free
+// Model: opencode
 // Tool: opencode
-// Prompt: Create x86_64 kernel entry point with boot info parsing,
-//         serial port initialization, GDT/IDT/VMM/allocator setup, and kernel main loop.
+// Prompt: Create x86_64 kernel entry point stub.
 
 #![no_std]
 #![no_main]
-#![feature(abi_x86_interrupt)]
-
-extern crate boot_info;
 
 use core::panic::PanicInfo;
-use x86_64::VirtAddr;
-
-mod serial;
-mod vga;
+use crate::{serial, gdt, interrupts, pic, memory, vmm, allocator};
 
 /// Kernel entry point called by bootloader
 #[no_mangle]
-pub extern "C" fn _start(boot_info: &'static boot_info::BootInfo) -> ! {
-    // Initialize serial port for early debug output
+pub extern "C" fn _start() -> ! {
     serial::init();
-
-    println!("AIOS - AI-Generated Operating System");
-    println!("Booting on x86_64...");
-
-    // Initialize GDT
-    println!("[INIT] Setting up GDT...");
-    crate::kernel::gdt::init();
-
-    // Initialize interrupts
-    println!("[INIT] Setting up interrupts...");
-    crate::kernel::interrupts::init();
-
-    // Initialize PIC
-    println!("[INIT] Initializing PIC...");
-    crate::kernel::pic::init();
-
-    // Initialize memory manager
-    println!("[INIT] Setting up physical memory manager...");
-    let kernel_end = boot_info.memory_map.iter()
-        .filter(|r| r.region_type == boot_info::MemoryRegionType::Usable)
-        .map(|r| r.start_addr + r.len)
-        .max()
-        .unwrap_or(0x100000);
-    crate::kernel::memory::init(
-        boot_info.memory_map.entries as *mut u8,
-        boot_info.memory_map.len(),
-        (kernel_end / 0x1000 + 1) as usize, // Next page after highest usable memory
-    );
-
-    // Initialize virtual memory manager
-    println!("[INIT] Setting up virtual memory manager...");
-    crate::kernel::vmm::init();
-
-    // Initialize 4-level paging with actual memory mapping
-    println!("[INIT] Setting up 4-level paging...");
-    unsafe {
-        crate::kernel::vmm::init_paging(
-            crate::kernel::vmm::PHYSICAL_MEMORY_OFFSET,
-            boot_info.memory_map.iter().map(|r| crate::kernel::vmm::MemoryRegion {
-                start: VirtAddr::new(r.start_addr + crate::kernel::vmm::PHYSICAL_MEMORY_OFFSET.as_u64()),
-                size: r.len,
-                kind: match r.region_type {
-                    boot_info::MemoryRegionType::Usable => crate::kernel::vmm::MemoryRegionKind::Kernel,
-                    _ => crate::kernel::vmm::MemoryRegionKind::Mmio,
-                },
-                flags: PageTableFlags::PRESENT | PageTableFlags::WRITABLE,
-            })
-        );
-    }
-
-    // Initialize kernel heap
-    println!("[INIT] Initializing kernel heap...");
-    // SAFETY: This is called once during boot, and the heap memory has been
-    // properly mapped by the virtual memory manager
-    unsafe {
-        crate::kernel::allocator::init();
-    }
-
-    println!("[INIT] Kernel initialization complete.");
-    println!("[INIT] Memory map entries: {}", boot_info.memory_map.len());
-
-    // Print VMM memory map
-    if let Some(vmm) = crate::kernel::vmm::VMM.lock().as_ref() {
-        vmm.print_memory_map();
-    }
-
-    // Kernel main loop - halt until next interrupt
+    gdt::init();
+    interrupts::init();
+    pic::init();
+    memory::init(0 as *mut u8, 0, 0);
+    vmm::init();
+    unsafe { allocator::init(); }
+    
     loop {
         x86_64::instructions::hlt();
     }
 }
 
-/// Global panic handler
 #[panic_handler]
-fn panic(info: &PanicInfo) -> ! {
-    println!("[PANIC] {}", info);
+fn panic(_info: &PanicInfo) -> ! {
     loop {
         x86_64::instructions::hlt();
     }
