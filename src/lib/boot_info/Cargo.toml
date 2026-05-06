@@ -1,0 +1,24 @@
+[package]
+name = "boot_info"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "boot_info"
+path = "lib.rs"
+crate-type = ["staticlib"]
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+
+[profile.test]
+panic = "abort"
+
+[profile.doc]
+panic = "abort"
+
+[dependencies]

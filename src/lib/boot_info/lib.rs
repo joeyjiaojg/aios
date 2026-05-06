@@ -7,6 +7,7 @@
 #![no_std]
 
 use core::slice;
+use core::panic::PanicInfo;
 
 /// Boot information passed from bootloader
 #[repr(C)]
@@ -58,4 +59,10 @@ pub enum MemoryRegionType {
     AcpiNvs = 4,
     /// Bad memory (do not use)
     BadMemory = 5,
+}
+
+/// Panic handler for no_std environment
+#[panic_handler]
+fn panic(_info: &PanicInfo) -> ! {
+    loop {}
 }
