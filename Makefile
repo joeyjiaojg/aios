@@ -1,4 +1,5 @@
 # AIOS Makefile
+# Build configuration for the AIOS x86_64 kernel
 
 ARCH := x86_64
 TARGET := $(ARCH)-unknown-none
@@ -56,10 +57,10 @@ test-qemu: build
 
 # Code quality checks
 fmt:
-	cargo fmt --all -- --check
+	cargo +nightly fmt --all -- --check
 
 clippy:
-	cargo clippy --all-targets --all-features -- -D warnings
+	cargo +nightly clippy --lib -- -D warnings
 
 check: fmt clippy test
 

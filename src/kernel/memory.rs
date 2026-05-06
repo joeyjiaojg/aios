@@ -4,7 +4,6 @@
 // Tool: opencode
 // Prompt: Create memory manager stub for compilation.
 
-#![no_std]
 
 pub struct FrameAllocator;
 

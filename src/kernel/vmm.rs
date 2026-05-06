@@ -4,8 +4,6 @@
 // Tool: opencode
 // Prompt: Create VMM stub for compilation.
 
-#![no_std]
-
 pub const PHYSICAL_MEMORY_OFFSET: x86_64::VirtAddr = x86_64::VirtAddr::new(0xFFFF_8000_0000_0000);
 
 pub struct MemoryRegion {

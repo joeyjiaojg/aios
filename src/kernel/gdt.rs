@@ -5,7 +5,6 @@
 // Prompt: Create x86_64 GDT with kernel code and data segments,
 //         TSS entry, and proper descriptor setup with tests.
 
-#![no_std]
 
 pub fn init() {
     unsafe {

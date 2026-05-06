@@ -5,7 +5,6 @@
 // Prompt: Create VFS framework for AIOS x86_64 kernel in Rust no_std with VfsNode,
 //         VfsManager with 256 nodes and 8 mount points, thread safety with spin::Mutex
 
-#![no_std]
 
 use spin::Mutex;
 

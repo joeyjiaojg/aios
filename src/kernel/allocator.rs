@@ -4,7 +4,6 @@
 // Tool: opencode
 // Prompt: Create kernel heap allocator stub for compilation.
 
-#![no_std]
 
 pub unsafe fn init() {}
 

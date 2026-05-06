@@ -4,7 +4,6 @@
 // Tool: opencode
 // Prompt: Create keyboard driver stub.
 
-#![no_std]
 
 pub fn init() {}
 
