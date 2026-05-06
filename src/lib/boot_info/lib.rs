@@ -6,8 +6,14 @@
 
 #![no_std]
 
-use core::slice;
 use core::panic::PanicInfo;
+use core::slice;
+
+/// Panic handler for boot_info library
+#[panic_handler]
+fn panic(_info: &PanicInfo) -> ! {
+    loop {}
+}
 
 /// Boot information passed from bootloader
 #[repr(C)]
@@ -25,9 +31,7 @@ pub struct MemoryMap {
 impl MemoryMap {
     /// Get an iterator over memory regions
     pub fn iter(&self) -> impl Iterator<Item = &MemoryRegion> {
-        unsafe {
-            slice::from_raw_parts(self.entries, self.len).iter()
-        }
+        unsafe { slice::from_raw_parts(self.entries, self.len).iter() }
     }
 
     /// Get the length of the memory map
@@ -59,10 +63,4 @@ pub enum MemoryRegionType {
     AcpiNvs = 4,
     /// Bad memory (do not use)
     BadMemory = 5,
-}
-
-/// Panic handler for no_std environment
-#[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
-    loop {}
 }

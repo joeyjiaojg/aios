@@ -49,6 +49,8 @@ Prompt: Create PML4-based virtual memory manager with page table allocation
 - [ ] Code includes tests
 - [ ] No unsafe blocks without justification comments
 - [ ] Compatible with x86_64-unknown-none target
+- [ ] Code passes formatting check (`make fmt`)
+- [ ] Code passes clippy check (`make clippy`)
 
 ## AI Auto-Merge
 

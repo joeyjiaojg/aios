@@ -9,15 +9,17 @@ repository = "https://github.com/joeyjiaojg/aios"
 keywords = ["os", "kernel", "ai-generated", "x86_64"]
 categories = ["no-std", "embedded"]
 
+[workspace]
+
 [dependencies]
 bitflags = "2.4"
 log = "0.4"
 volatile = "0.6"
-x86_64 = { version = "0.15", features = ["abi_x86_interrupt"] }
+x86_64 = { version = "0.15", features = ["abi_x86_interrupt"], default-features = false }
 bootloader = "0.9"
 spin = "0.9"
 pic8259 = "0.10"
-boot_info = { path = "src/lib/boot_info" }
+boot_info = { package = "aios_boot_info", path = "src/lib/boot_info" }
 linked_list_allocator = "0.10"
 
 [lib]
@@ -32,7 +34,3 @@ panic = "abort"
 panic = "abort"
 lto = true
 codegen-units = 1
-
-[features]
-default = []
-x86_64 = []

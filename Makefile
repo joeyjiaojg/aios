@@ -7,7 +7,7 @@ ISO := $(BUILD)/aios.iso
 KERNEL := $(BUILD)/kernel.bin
 QEMU := qemu-system-x86_64
 
-.PHONY: all build run clean test test-qemu test-unit test-integration
+.PHONY: all build run clean test test-qemu test-unit test-integration fmt check clippy
 
 all: build
 
@@ -53,6 +53,15 @@ test-qemu: build
 		-no-reboot \
 		-m 128M \
 		-display none
+
+# Code quality checks
+fmt:
+	cargo fmt --all -- --check
+
+clippy:
+	cargo clippy --all-targets --all-features -- -D warnings
+
+check: fmt clippy test
 
 clean:
 	rm -rf $(BUILD)

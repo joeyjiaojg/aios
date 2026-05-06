@@ -1,0 +1,5 @@
+# AIOS Rustfmt Configuration
+# Minimal configuration for stable rustfmt compatibility
+
+# Maximum width for code
+max_width = 100
