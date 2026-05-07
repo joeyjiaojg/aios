@@ -2,7 +2,10 @@
 //
 // Model: MiniMax M2.5 Free
 // Tool: opencode
-// Prompt: Create x86_64 kernel entry point stub.
+// Prompt: Create x86_64 kernel entry point with heap initialization.
+
+use crate::allocator;
+use x86_64::VirtAddr;
 
 #[inline]
 fn hlt() -> ! {
@@ -13,7 +16,7 @@ fn hlt() -> ! {
 
 #[repr(C)]
 pub struct BootInfo {
-    pub memory_map: MemoryMap,
+    pub memory_map: crate::boot_info::MemoryMap,
 }
 
 #[repr(C)]
@@ -33,7 +36,12 @@ impl MemoryMap {
 }
 
 #[no_mangle]
-pub extern "C" fn _start(_boot_info: &'static BootInfo) -> ! {
+pub extern "C" fn _start(boot_info: &'static BootInfo) -> ! {
+    // Initialize the heap allocator using the first usable memory region.
+    let heap_start = 0x_0010_0000_0000u64; // 1TB offset, choose a high address to avoid conflicts
+    let heap_size = 1024 * 1024; // 1 MiB heap
+    unsafe { allocator::init(VirtAddr::new(heap_start), heap_size) };
+
     loop {
         hlt();
     }

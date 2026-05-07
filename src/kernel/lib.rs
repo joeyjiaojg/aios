@@ -10,6 +10,9 @@
 #![allow(unused_features)]
 #![allow(static_mut_refs)]
 
+extern crate alloc;
+extern crate spin;
+
 use core::panic::PanicInfo;
 
 #[panic_handler]
