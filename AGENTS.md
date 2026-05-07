@@ -53,9 +53,6 @@ AIOS is an x86_64 operating system kernel written in Rust, targeting `no_std` en
 6. **Wait for CI + AI Review** (AI Auto-Merge workflow)
 7. **If REJECTED**: Fix ALL issues, commit, push again
 8. **Never force-push** unless explicitly asked
-7. **If REJECTED**: Fix ALL issues, commit, push again
-8. **Never force-push** unless explicitly asked
->>>>>>> Stashed changes
 
 ### 7. Common Mistakes to Avoid
 ❌ Using `Vec` in `no_std` code

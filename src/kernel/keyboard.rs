@@ -76,7 +76,7 @@ impl KeyboardBuffer {
 }
 
 static KEYBOARD_BUFFER: Mutex<KeyboardBuffer> = Mutex::new(KeyboardBuffer {
-    buffer: [None; 128],
+    buffer: [None; KEYBOARD_BUFFER_SIZE],
     head: 0,
     tail: 0,
     count: 0,
@@ -290,6 +290,9 @@ mod tests {
     fn test_scancode_decode_q() {
         let event = decode_scancode(0x10);
         assert!(event.is_some());
+        let e = event.unwrap();
+        assert_eq!(e.scancode, 0x10);
+        assert!(e.pressed);
     }
 
     #[test]
@@ -308,6 +311,27 @@ mod tests {
     fn test_scancode_decode_ctrl() {
         let event = decode_scancode(0x1D);
         assert!(event.is_none());
+    }
+
+    #[test]
+    fn test_modifier_shift() {
+        decode_scancode(0x2A);
+        let m = MODIFIERS.lock();
+        assert!(m.shift);
+    }
+
+    #[test]
+    fn test_modifier_ctrl() {
+        decode_scancode(0x1D);
+        let m = MODIFIERS.lock();
+        assert!(m.ctrl);
+    }
+
+    #[test]
+    fn test_modifier_alt() {
+        decode_scancode(0x38);
+        let m = MODIFIERS.lock();
+        assert!(m.alt);
     }
 
     #[test]
