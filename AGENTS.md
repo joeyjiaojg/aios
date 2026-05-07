@@ -45,15 +45,14 @@ AIOS is an x86_64 operating system kernel written in Rust, targeting `no_std` en
 - Never use `Vec` in test code
 
 ### 6. PR Workflow
-1. **Create branch**: `git checkout -b feat/<feature-name>`
-2. **Commit changes** with proper format (see above)
-3. **Push**: `git push origin feat/<feature-name>`
-4. **Create PR**: `gh pr create --title "feat(scope): description" --body "..."`
-5. **Wait for CI + AI Review** (AI Auto-Merge workflow)
-6. **Only merge if AI Review PASSED** - NEVER merge when AI Review REJECTED
+1. **Fetch and sync**: `git fetch origin master && git checkout master && git pull`
+2. **Create branch**: `git checkout -b feat/<feature-name>`
+3. **Commit changes** with proper format (see above)
+4. **Push**: `git push origin feat/<feature-name>`
+5. **Create PR**: `gh pr create --title "feat(scope): description" --body "..."`
+6. **Wait for CI + AI Review** (AI Auto-Merge workflow)
 7. **If REJECTED**: Fix ALL issues, commit, push again
 8. **Never force-push** unless explicitly asked
-9. **Never manually merge** when AI Review shows REJECTED
 
 ### 7. Common Mistakes to Avoid
 ❌ Using `Vec` in `no_std` code
