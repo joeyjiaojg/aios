@@ -13,7 +13,7 @@ categories = ["no-std", "embedded"]
 bitflags = "2.4"
 log = "0.4"
 volatile = "0.6"
-x86_64 = { version = "0.15", features = ["abi_x86_interrupt"], default-features = false }
+x86_64 = { version = "0.15", features = ["abi_x86_interrupt", "instructions"], default-features = false }
 bootloader = "0.9"
 spin = "0.9"
 pic8259 = "0.10"
