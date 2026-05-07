@@ -40,15 +40,16 @@ pub extern "C" fn _start(boot_info: &'static BootInfo) -> ! {
     // Initialize the heap allocator using the first usable memory region.
     // Safety: We initialize the heap at the first usable memory region provided by the bootloader.
     // The address is guaranteed to be valid and available for heap use by the bootloader contract.
-    let heap_start = boot_info.memory_map.iter()
+    let heap_start = boot_info
+        .memory_map
+        .iter()
         .find(|region| region.region_type == crate::boot_info::MemoryRegionType::Usable)
         .map(|region| region.start_addr)
         .expect("No usable memory region found");
-    
+
     let heap_size = 1024 * 1024; // 1 MiB heap
     unsafe {
-        # Safety
-        // The heap_start address comes from the bootloader-provided memory map
+        // Safety: The heap_start address comes from the bootloader-provided memory map
         // and is guaranteed to be a valid, usable memory region
         allocator::init(VirtAddr::new(heap_start), heap_size)
     };
