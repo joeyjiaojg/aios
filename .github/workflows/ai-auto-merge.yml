@@ -58,10 +58,14 @@ jobs:
             echo "review_output=OpenCode did not respond within 4 minutes" >> $GITHUB_OUTPUT
             echo "approved=false" >> $GITHUB_OUTPUT
           elif echo "$REVIEW_RESULT" | grep -qi "APPROVED"; then
-            echo "review_output=$(echo "$REVIEW_RESULT" | tr '\n' ' ')" >> $GITHUB_OUTPUT
+            # Save full review output to a temporary file for GitHub comment
+            echo "$REVIEW_RESULT" > /tmp/review_output_full.txt
+            echo "review_output_file=/tmp/review_output_full.txt" >> $GITHUB_OUTPUT
             echo "approved=true" >> $GITHUB_OUTPUT
           else
-            echo "review_output=$(echo "$REVIEW_RESULT" | tr '\n' ' ')" >> $GITHUB_OUTPUT
+            # Save full review output to a temporary file for GitHub comment
+            echo "$REVIEW_RESULT" > /tmp/review_output_full.txt
+            echo "review_output_file=/tmp/review_output_full.txt" >> $GITHUB_OUTPUT
             echo "approved=false" >> $GITHUB_OUTPUT
           fi
 
@@ -71,8 +75,19 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const reviewOutput = process.env.REVIEW_OUTPUT || '';
+            const reviewOutputFile = process.env.REVIEW_OUTPUT_FILE || '';
             const isApproved = (process.env.IS_APPROVED || '') === 'true';
+            let reviewOutput = 'No review output available';
+            
+            // Read the review output from the temporary file if it exists
+            if (reviewOutputFile) {
+              try {
+                const fs = require('fs');
+                reviewOutput = fs.readFileSync(reviewOutputFile, 'utf8');
+              } catch (error) {
+                reviewOutput = 'Error reading review output: ' + error.message;
+              }
+            }
 
             await github.rest.issues.createComment({
               owner: context.repo.owner,
@@ -81,7 +96,7 @@ jobs:
               body: `## AI Review Result\n\n**Model:** opencode/minimax-m2.5-free\n**Tool:** opencode\n**Status:** ${isApproved ? '✅ APPROVED' : '❌ REJECTED'}\n\n<details><summary>Details</summary>\n\n\`\`\`\n${reviewOutput}\n\`\`\`\n\n</details>`
             });
         env:
-          REVIEW_OUTPUT: ${{ steps.review.outputs.review_output }}
+          REVIEW_OUTPUT_FILE: ${{ steps.review.outputs.review_output_file }}
           IS_APPROVED: ${{ steps.review.outputs.approved }}
 
       - name: Auto Merge if Approved
