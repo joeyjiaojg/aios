@@ -26,6 +26,7 @@ pub mod gdt;
 pub mod interrupts;
 pub mod keyboard;
 pub mod memory;
+pub mod network;
 pub mod pic;
 pub mod task;
 pub mod vga;
