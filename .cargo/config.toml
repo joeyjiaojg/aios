@@ -1,0 +1,8 @@
+[build]
+target = "x86_64-unknown-none"
+
+[term]
+verbose = true
+
+[unstable]
+build-std = ["core", "compiler_builtins"]
