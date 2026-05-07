@@ -57,6 +57,13 @@ fmt:
 clippy:
 	$(RUSTUP) run nightly $(CARGO) clippy --lib -- -D warnings
 
+ai-review:
+	@echo "Running AI code review using opencode..."
+	@mkdir -p /tmp
+	@git diff origin/master...HEAD > /tmp/pr_diff.txt 2>/dev/null || git diff HEAD > /tmp/pr_diff.txt
+	@timeout 240 opencode run -m opencode/minimax-m2.5-free \
+		"You are a code reviewer for AIOS, an AI-generated x86_64 OS written in Rust.\n\nReview the following PR diff:\n- Memory safety (unsafe blocks need justification)\n- x86_64 architecture correctness\n- Consistency with Rust no_std patterns\n- No hardcoded secrets\n- Proper error handling\n- Test coverage\n- Commit message follows AIOS convention (Model/Tool fields)\n\nDiff:\n$$(cat /tmp/pr_diff.txt)\n\nOutput exactly 'APPROVED' or 'REJECTED' with brief reasoning." || (echo "Review failed or timed out"; exit 1)
+
 check: fmt clippy test
 
 clean:
