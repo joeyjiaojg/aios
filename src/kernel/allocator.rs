@@ -2,19 +2,32 @@
 //
 // Model: opencode
 // Tool: opencode
-// Prompt: Create kernel heap allocator stub for compilation.
+// Prompt: Create kernel heap allocator with global allocator.
 
-/// Initialize the kernel heap allocator
+use linked_list_allocator::LockedHeap;
+use x86_64::VirtAddr;
+
+/// Global allocator instance for the kernel.
+#[global_allocator]
+static HEAP_ALLOCATOR: LockedHeap = LockedHeap::empty();
+
+/// Initialize the kernel heap allocator.
 ///
 /// # Safety
 /// Must be called once during kernel initialization before any allocation.
-pub unsafe fn init() {}
+/// The `heap_start` address must be valid and the memory must be available for use as the heap.
+pub unsafe fn init(heap_start: VirtAddr, heap_size: usize) {
+    HEAP_ALLOCATOR
+        .lock()
+        .init(heap_start.as_mut_ptr(), heap_size);
+}
 
 #[cfg(test)]
 mod tests {
     #[test]
     fn test_allocator_init() {
-        init();
+        // Safety: We are initializing a heap in a test environment at a fixed address.
+        unsafe { super::init(VirtAddr::new(0x_0010_0000), 64 * 1024) };
     }
 
     #[test]
