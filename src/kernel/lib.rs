@@ -8,6 +8,7 @@
 #![feature(abi_x86_interrupt)]
 #![feature(asm_experimental_arch)]
 #![allow(unused_features)]
+#![allow(static_mut_refs)]
 
 use core::panic::PanicInfo;
 
@@ -20,6 +21,7 @@ fn panic(_info: &PanicInfo) -> ! {
 pub mod serial;
 
 pub mod allocator;
+pub mod ata;
 pub mod gdt;
 pub mod interrupts;
 pub mod keyboard;
