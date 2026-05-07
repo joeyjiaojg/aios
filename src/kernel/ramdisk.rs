@@ -161,7 +161,8 @@ mod tests {
 
     #[test]
     fn test_init_fn() {
-        init();
+        let mut ramdisk = Ramdisk::new();
+        ramdisk.init();
     }
 
     #[test]
@@ -234,14 +235,16 @@ mod tests {
 
     #[test]
     fn test_read() {
-        let buf = &mut [0u8; 512];
-        assert!(read(1, 0, buf).is_none());
+        let ramdisk = Ramdisk::new();
+        let mut buf = [0u8; 512];
+        assert!(ramdisk.read(1, 0, &mut buf).is_none());
     }
 
     #[test]
     fn test_write() {
+        let ramdisk = Ramdisk::new();
         let data = &[0u8; 512];
-        assert!(write(1, 0, data).is_none());
+        assert!(ramdisk.write(1, 0, data).is_none());
     }
 
     #[test]
