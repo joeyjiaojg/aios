@@ -115,16 +115,6 @@ impl Ramdisk {
     }
 }
 
-pub fn init() {}
-
-pub fn read(_ino: u32, _offset: u32, _buf: &mut [u8]) -> Option<usize> {
-    None
-}
-
-pub fn write(_ino: u32, _offset: u32, _data: &[u8]) -> Option<usize> {
-    None
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

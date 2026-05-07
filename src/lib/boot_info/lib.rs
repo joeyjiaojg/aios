@@ -4,7 +4,7 @@
 // Tool: opencode
 // Prompt: Create boot_info library to parse bootloader-provided memory map and boot parameters.
 
-#![no_std]
+#![cfg_attr(not(test), no_std)]
 #![allow(dead_code, unused_imports)]
 
 use core::slice;
