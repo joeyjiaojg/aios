@@ -28,6 +28,7 @@ pub mod keyboard;
 pub mod memory;
 pub mod network;
 pub mod pic;
+pub mod ramdisk;
 pub mod task;
 pub mod vga;
 pub mod vmm;
