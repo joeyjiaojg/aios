@@ -4,11 +4,6 @@
 // Tool: opencode
 // Prompt: Create x86_64 kernel entry point stub.
 
-#![no_std]
-#![no_main]
-#![feature(abi_x86_interrupt)]
-#![feature(asm_experimental_arch)]
-
 #[inline]
 fn hlt() -> ! {
     loop {

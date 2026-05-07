@@ -4,8 +4,10 @@
 // Tool: opencode
 // Prompt: Create kernel heap allocator stub for compilation.
 
-#![no_std]
-
+/// Initialize the kernel heap allocator
+///
+/// # Safety
+/// Must be called once during kernel initialization before any allocation.
 pub unsafe fn init() {}
 
 #[cfg(test)]

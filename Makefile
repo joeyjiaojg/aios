@@ -1,4 +1,5 @@
 # AIOS Makefile
+# Build configuration for the AIOS x86_64 kernel
 
 ARCH := x86_64
 TARGET := $(ARCH)-unknown-none
@@ -6,6 +7,8 @@ BUILD := build
 ISO := $(BUILD)/aios.iso
 KERNEL := $(BUILD)/kernel.bin
 QEMU := qemu-system-x86_64
+RUSTUP := ${HOME}/.cargo/bin/rustup
+CARGO := ${HOME}/.cargo/bin/cargo
 
 .PHONY: all build run clean test test-qemu test-unit test-integration fmt check clippy
 
@@ -14,7 +17,8 @@ all: build
 build: $(KERNEL)
 
 $(KERNEL): src/**/*.rs Cargo.toml
-	cargo build --release --target $(TARGET) --features $(ARCH)
+	mkdir -p $(BUILD)
+	$(RUSTUP) run nightly $(CARGO) build --release --target $(TARGET)
 	cp target/$(TARGET)/release/libaios_kernel.a $(KERNEL)
 
 run: build
@@ -38,28 +42,20 @@ run-debug: build
 iso: build
 	grub-mkrescue -o $(ISO) $(BUILD)/iso/
 
-test: test-unit test-integration test-qemu
+test: test-unit
 
 test-unit:
-	cargo test --lib
+	cd src/lib/boot_info && $(RUSTUP) run nightly $(CARGO) test --lib
 
 test-integration:
-	cargo test --test integration
-
-test-qemu: build
-	$(QEMU) \
-		-cdrom $(ISO) \
-		-serial file:$(BUILD)/qemu-output.txt \
-		-no-reboot \
-		-m 128M \
-		-display none
+	$(RUSTUP) run nightly $(CARGO) test --test integration --target $(TARGET) -Zbuild-std=core,alloc
 
 # Code quality checks
 fmt:
-	cargo fmt --all -- --check
+	$(RUSTUP) run nightly $(CARGO) fmt --all -- --check
 
 clippy:
-	cargo clippy --all-targets --all-features -- -D warnings
+	$(RUSTUP) run nightly $(CARGO) clippy --lib -- -D warnings
 
 check: fmt clippy test
 

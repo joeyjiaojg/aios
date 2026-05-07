@@ -50,8 +50,10 @@ AIOS is an x86_64 operating system kernel written in Rust, targeting `no_std` en
 3. **Push**: `git push origin feat/<feature-name>`
 4. **Create PR**: `gh pr create --title "feat(scope): description" --body "..."`
 5. **Wait for CI + AI Review** (AI Auto-Merge workflow)
-6. **If REJECTED**: Fix ALL issues, commit, push again
-7. **Never force-push** unless explicitly asked
+6. **Only merge if AI Review PASSED** - NEVER merge when AI Review REJECTED
+7. **If REJECTED**: Fix ALL issues, commit, push again
+8. **Never force-push** unless explicitly asked
+9. **Never manually merge** when AI Review shows REJECTED
 
 ### 7. Common Mistakes to Avoid
 ❌ Using `Vec` in `no_std` code

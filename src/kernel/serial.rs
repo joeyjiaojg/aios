@@ -21,7 +21,7 @@ pub fn init() {
         outb(COM1_PORT + 3, 0x80);
 
         // Set divisor to 1 (115200 baud)
-        outb(COM1_PORT + 0, 0x01);
+        outb(COM1_PORT, 0x01);
         outb(COM1_PORT + 1, 0x00);
 
         // 8 bits, no parity, one stop bit

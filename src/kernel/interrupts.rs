@@ -4,11 +4,10 @@
 // Tool: opencode
 // Prompt: Create IDT stub for compilation.
 
-#![no_std]
-
 pub fn init() {}
 
 #[inline]
+#[allow(dead_code)]
 unsafe fn inb(port: u16) -> u8 {
     let result: u8;
     core::arch::asm!("inb %dx, %al", in("dx") port, out("al") result);

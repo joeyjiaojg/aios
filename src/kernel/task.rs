@@ -4,9 +4,7 @@
 // Tool: opencode
 // Prompt: Create task manager stub.
 
-#![no_std]
-
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 pub struct Task;
 
 impl Task {

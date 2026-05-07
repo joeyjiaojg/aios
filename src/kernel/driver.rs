@@ -4,7 +4,6 @@
 // Tool: opencode
 // Prompt: Create device driver framework for AIOS x86_64 kernel in Rust no_std with Device struct, DriverManager with 16 devices, spin::Mutex
 
-#![no_std]
 
 use spin::Mutex;
 

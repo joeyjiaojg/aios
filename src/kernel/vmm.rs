@@ -4,8 +4,6 @@
 // Tool: opencode
 // Prompt: Create VMM stub for compilation.
 
-#![no_std]
-
 pub const PHYSICAL_MEMORY_OFFSET: x86_64::VirtAddr = x86_64::VirtAddr::new(0xFFFF_8000_0000_0000);
 
 pub struct MemoryRegion {
@@ -24,6 +22,10 @@ pub static VMM: spin::Mutex<Option<()>> = spin::Mutex::new(None);
 
 pub fn init() {}
 
+/// Initialize the page tables for virtual memory
+///
+/// # Safety
+/// Must be called once during kernel initialization. Invalid regions may cause undefined behavior.
 pub unsafe fn init_paging<A>(_offset: x86_64::VirtAddr, _regions: A)
 where
     A: Iterator<Item = MemoryRegion>,

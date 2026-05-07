@@ -4,8 +4,6 @@
 // Tool: opencode
 // Prompt: Create memory manager stub for compilation.
 
-#![no_std]
-
 pub struct FrameAllocator;
 
 pub fn init(_start: *mut u8, _len: usize, _total_pages: usize) {}

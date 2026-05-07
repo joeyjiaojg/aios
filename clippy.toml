@@ -1,62 +1,11 @@
 # AIOS Clippy Configuration
-# Lint settings for the AIOS x86_64 OS kernel
+# Valid clippy.toml options only
 
-# Warnings - things we want to fix
-# Safety and correctness
-unsafe_code = "warn"
-unwrap_used = "warn"
-expect_used = "warn"
-panic = "warn"
-indexing_slicing = "warn"
-integer_arithmetic = "warn"
-overflow_checks = "warn"
+cognitive-complexity-threshold = 25
+too-many-arguments-threshold = 5
+too-many-lines-threshold = 300
 
-# Style and complexity
-too_many_lines = { limit = 300, level = "warn" }
-too_many_arguments = { limit = 5, level = "warn" }
-cognitive_complexity = { limit = 25, level = "warn" }
-collapsible_if = "warn"
-map_unwrap_or = "warn"
-option_option = "warn"
-result_result = "warn"
-vec_init_then_push = "warn"
-
-# Pedantic - mostly style
-non_ascii_literals = "warn"
-unicode_not_nfc = "warn"
-trivial_casts = "warn"
-numeric_literals = "warn"
-shadow_reuse = "warn"
-shadow_unrelated = "warn"
-shadow_same = "warn"
-
-# Restrictions - things we generally want to avoid in kernels
-# Note: Some are relaxed for embedded/OS development
-map_entry = "warn"
-manual_assert = "warn"
-manual_string_new = "warn"
-mem_forget = "warn"
-mem_replace = "warn"
-mem_take = "warn"
-mut_mut = "warn"
-needless_borrow = "warn"
-needless_borrowed_ref = "warn"
-needless_continue = "warn"
-needless_pass_by_value = "warn"
-needless_return = "warn"
-option_map_unit_fn = "warn"
-option_map_unit_fn = "warn"
-pub_enum_variant_names = "warn"
-use_debug = "warn"
-
-# Allow some things that are common in OS/kernel development
-# These would typically be discouraged in regular applications
-drop_bref = "allow"  # Common in kernel code when working with references
-let_underscore_drop = "allow"  # Common when ignoring return values
-unused_must_use = "allow"  # Sometimes intentional in kernel code
-unused_results = "allow"  # Sometimes intentional in kernel code
-wildcard_imports = "allow"  # Sometimes used in kernel modules for brevity
-
-# Features specific to our dependencies
-# Allow unsafe code in certain contexts where it's justified
-# (Individual unsafe blocks should still have safety comments)
+# Allow in kernel code
+allow-unwrap-in-tests = true
+allow-panic-in-tests = true
+allow-print-in-tests = true

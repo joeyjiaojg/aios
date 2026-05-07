@@ -4,12 +4,15 @@
 // Tool: opencode
 // Prompt: Create boot_info library to parse bootloader-provided memory map and boot parameters.
 
-#![no_std]
+#![cfg_attr(not(test), no_std)]
+#![cfg_attr(test, allow(dead_code, unused_imports))]
 
-use core::panic::PanicInfo;
 use core::slice;
 
-/// Panic handler for boot_info library
+#[cfg(not(test))]
+use core::panic::PanicInfo;
+
+#[cfg(not(test))]
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
     loop {}

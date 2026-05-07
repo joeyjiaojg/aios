@@ -9,8 +9,6 @@ repository = "https://github.com/joeyjiaojg/aios"
 keywords = ["os", "kernel", "ai-generated", "x86_64"]
 categories = ["no-std", "embedded"]
 
-[workspace]
-
 [dependencies]
 bitflags = "2.4"
 log = "0.4"

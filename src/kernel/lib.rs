@@ -1,13 +1,20 @@
 // AIOS Kernel Library
 //
-// Model: MiniMax M2.5 Free
+// Model: opencode/minimax-m2.5-free
 // Tool: opencode
-// Prompt: Create kernel library root module exporting core functionality
-//         including VMM and allocator.
+// Prompt: Create kernel library root module exporting core functionality.
 
 #![no_std]
 #![feature(abi_x86_interrupt)]
 #![feature(asm_experimental_arch)]
+#![allow(unused_features)]
+
+use core::panic::PanicInfo;
+
+#[panic_handler]
+fn panic(_info: &PanicInfo) -> ! {
+    loop {}
+}
 
 #[macro_use]
 pub mod serial;
@@ -16,7 +23,6 @@ pub mod allocator;
 pub mod gdt;
 pub mod interrupts;
 pub mod keyboard;
-pub mod main;
 pub mod memory;
 pub mod pic;
 pub mod task;
