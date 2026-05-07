@@ -4,7 +4,6 @@
 // Tool: opencode
 // Prompt: Create task manager stub.
 
-
 #[derive(Clone, Copy)]
 pub struct Task;
 

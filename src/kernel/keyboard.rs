@@ -4,7 +4,6 @@
 // Tool: opencode
 // Prompt: Create keyboard driver stub.
 
-
 pub fn init() {}
 
 pub fn handle_keyboard_interrupt(_scancode: u8) {}

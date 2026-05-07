@@ -4,7 +4,6 @@
 // Tool: opencode
 // Prompt: Create IDT stub for compilation.
 
-
 pub fn init() {}
 
 #[inline]
