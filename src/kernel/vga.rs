@@ -8,7 +8,9 @@
 pub struct Writer {
     col: usize,
     row: usize,
+    #[allow(dead_code)]
     fg: Color,
+    #[allow(dead_code)]
     bg: Color,
 }
 
@@ -36,7 +38,7 @@ impl Writer {
     pub fn write_byte(&mut self, byte: u8) {
         match byte {
             b'\n' => self.new_line(),
-            _ if byte >= 32 && byte <= 126 => self.col += 1,
+            _ if (32..=126).contains(&byte) => self.col += 1,
             _ => {}
         }
     }

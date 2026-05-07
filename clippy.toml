@@ -1,35 +1,6 @@
 # AIOS Clippy Configuration
-# Minimal lint settings for AIOS x86_64 OS kernel
+# Valid clippy.toml options only
 
-# Warnings
-unwrap_used = "warn"
-
-# Style and complexity  
-too_many_lines = { limit = 300, level = "warn" }
-too_many_arguments = { limit = 5, level = "warn" }
-cognitive_complexity = { limit = 25, level = "warn" }
-collapsible_if = "warn"
-
-# Restrictions
-map_entry = "warn"
-manual_assert = "warn"
-manual_string_new = "warn"
-mem_forget = "warn"
-mem_replace = "warn"
-mem_take = "warn"
-mut_mut = "warn"
-needless_borrow = "warn"
-needless_borrowed_ref = "warn"
-needless_continue = "warn"
-needless_pass_by_value = "warn"
-needless_return = "warn"
-option_map_unit_fn = "warn"
-pub_enum_variant_names = "warn"
-use_debug = "warn"
-
-# Allow in kernel code
-drop_ref = "allow"
-let_underscore_drop = "allow"
-unused_must_use = "allow"
-unused_results = "allow"
-wildcard_imports = "allow"
+cognitive-complexity-threshold = 25
+too-many-arguments-threshold = 5
+too-many-lines-threshold = 300

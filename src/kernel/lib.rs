@@ -7,6 +7,14 @@
 #![no_std]
 #![feature(abi_x86_interrupt)]
 #![feature(asm_experimental_arch)]
+#![allow(unused_features)]
+
+use core::panic::PanicInfo;
+
+#[panic_handler]
+fn panic(_info: &PanicInfo) -> ! {
+    loop {}
+}
 
 #[macro_use]
 pub mod serial;

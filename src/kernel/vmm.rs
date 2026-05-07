@@ -22,6 +22,10 @@ pub static VMM: spin::Mutex<Option<()>> = spin::Mutex::new(None);
 
 pub fn init() {}
 
+/// Initialize the page tables for virtual memory
+///
+/// # Safety
+/// Must be called once during kernel initialization. Invalid regions may cause undefined behavior.
 pub unsafe fn init_paging<A>(_offset: x86_64::VirtAddr, _regions: A)
 where
     A: Iterator<Item = MemoryRegion>,
