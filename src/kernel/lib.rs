@@ -10,6 +10,9 @@
 #![allow(unused_features)]
 #![allow(static_mut_refs)]
 
+extern crate alloc;
+extern crate spin;
+
 use core::panic::PanicInfo;
 
 #[panic_handler]
@@ -28,6 +31,7 @@ pub mod keyboard;
 pub mod memory;
 pub mod network;
 pub mod pic;
+pub mod ramdisk;
 pub mod task;
 pub mod vga;
 pub mod vmm;
