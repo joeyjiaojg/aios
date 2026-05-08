@@ -122,10 +122,19 @@ impl E1000 {
         }
     }
 
+    // Safety: The phys_addr parameter is the physical address of a pre-allocated DMA buffer.
+    // In AIOS, physical addresses are identity-mapped to virtual addresses, so we can
+    // safely cast phys_addr to usize and use it as a pointer. The caller is responsible
+    // for ensuring the buffer is properly aligned and mapped.
     pub fn init(&mut self, phys_addr: u64) -> bool {
         if self.initialized {
             return true;
         }
+
+        // Note: In AIOS kernel, physical addresses are identity-mapped to virtual addresses.
+        // The kernel uses a direct mapping where physical address = virtual address.
+        // This allows us to use the physical address directly as a pointer after casting.
+        // This is a simplified approach suitable for a bare-metal kernel.
 
         self.rx_desc_phys = phys_addr;
         self.tx_desc_phys = phys_addr + (NUM_RX_DESC * core::mem::size_of::<RxDescriptor>()) as u64;
