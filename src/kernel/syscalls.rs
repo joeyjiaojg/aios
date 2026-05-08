@@ -114,10 +114,10 @@ fn sys_write(fd: usize, buf: usize, count: usize) -> isize {
             return 0;
         }
         let safe_count = if count > 4096 { 4096 } else { count };
-        // SAFETY: We validate that buf is non-zero and count is bounded to 4KB.
+        // # Safety
+        // We validate that buf is non-zero and count is bounded to 4KB.
         // This is a simple implementation - a production kernel would copy
         // through a kernel buffer to ensure the user pointer is valid.
-        #[allow(clippy::undocumented_unsafe_blocks)]
         let slice = unsafe { core::slice::from_raw_parts(buf as *const u8, safe_count) };
         if let Ok(s) = core::str::from_utf8(slice) {
             crate::serial::write_str(s);
