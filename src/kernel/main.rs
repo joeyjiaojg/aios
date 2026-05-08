@@ -54,6 +54,10 @@ pub extern "C" fn _start(boot_info: &'static BootInfo) -> ! {
         allocator::init(VirtAddr::new(heap_start), heap_size)
     };
 
+    crate::process::init();
+    crate::syscalls::init();
+    crate::shell::run_shell();
+
     loop {
         hlt();
     }

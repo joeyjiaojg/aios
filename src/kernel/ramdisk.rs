@@ -57,8 +57,10 @@ impl Default for Ramdisk {
 }
 
 impl Ramdisk {
-    pub fn new() -> Self {
-        Self::default()
+    pub const fn new() -> Self {
+        Self {
+            data: [0u8; RAMDISK_SIZE],
+        }
     }
 
     pub fn init(&mut self) {
@@ -114,6 +116,10 @@ impl Ramdisk {
         Some(to_copy)
     }
 }
+
+pub static RAMDISK: spin::Mutex<Ramdisk> = spin::Mutex::new(Ramdisk {
+    data: [0u8; RAMDISK_SIZE],
+});
 
 #[cfg(test)]
 mod tests {
