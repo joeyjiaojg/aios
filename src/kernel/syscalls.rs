@@ -192,14 +192,13 @@ fn sys_fork(_arg1: usize, _arg2: usize, _arg3: usize) -> isize {
 }
 
 fn sys_execve(path_ptr: usize, _argv: usize, _envp: usize) -> isize {
-    // # Safety
-    // execve loads an ELF binary from the ramdisk at the given path and prepares
-    // it for execution. The path must point to a null-terminated string in user memory.
     if path_ptr == 0 {
         return -1;
     }
 
-    // Read path string from user pointer
+    // # Safety
+    // Reading path string from user pointer. The pointer is assumed to be valid
+    // and pointing to a null-terminated string in user memory.
     let path_bytes = unsafe { core::slice::from_raw_parts(path_ptr as *const u8, 256) };
     let path_len = path_bytes.iter().position(|&b| b == 0).unwrap_or(256);
     let path = &path_bytes[..path_len];
@@ -216,11 +215,10 @@ fn sys_execve(path_ptr: usize, _argv: usize, _envp: usize) -> isize {
     };
 
     let mut elf_data = [0u8; 8192];
-    let mut allocator = crate::memory::FrameAllocator::new();
-    allocator.init(0x100000 as *mut u8, 4096 * 64, 64);
-    let _phys_base = 0x100000 as *mut u8;
 
     // Read ELF from ramdisk into buffer
+    // # Safety
+    // RAMDISK lock ensures exclusive access, and we only read up to buffer size
     let ramdisk = crate::ramdisk::RAMDISK.lock();
     let bytes_read = ramdisk.read(block_num, 0, &mut elf_data).unwrap_or(0);
     drop(ramdisk);
@@ -301,7 +299,8 @@ fn sys_chdir(path_ptr: usize, _arg2: usize, _arg3: usize) -> isize {
     }
 
     // # Safety
-    // Reading path string from user pointer. The pointer is assumed valid.
+    // Reading path string from user pointer. The pointer is assumed to be valid
+    // and pointing to a null-terminated string in user memory.
     let path_bytes = unsafe { core::slice::from_raw_parts(path_ptr as *const u8, 256) };
     let path_len = path_bytes.iter().position(|&b| b == 0).unwrap_or(256);
     let path = core::str::from_utf8(&path_bytes[..path_len]).unwrap_or("");
@@ -325,6 +324,9 @@ fn sys_mkdir(path_ptr: usize, _mode: usize, _arg3: usize) -> isize {
         return -1;
     }
 
+    // # Safety
+    // Reading path string from user pointer. The pointer is assumed to be valid
+    // and pointing to a null-terminated string in user memory.
     let path_bytes = unsafe { core::slice::from_raw_parts(path_ptr as *const u8, 256) };
     let path_len = path_bytes.iter().position(|&b| b == 0).unwrap_or(256);
 
@@ -343,6 +345,9 @@ fn sys_rmdir(path_ptr: usize, _arg2: usize, _arg3: usize) -> isize {
         return -1;
     }
 
+    // # Safety
+    // Reading path string from user pointer. The pointer is assumed to be valid
+    // and pointing to a null-terminated string in user memory.
     let path_bytes = unsafe { core::slice::from_raw_parts(path_ptr as *const u8, 256) };
     let path_len = path_bytes.iter().position(|&b| b == 0).unwrap_or(256);
     let ino = simple_hash(&path_bytes[..path_len]) as u32;
@@ -359,6 +364,9 @@ fn sys_unlink(path_ptr: usize, _arg2: usize, _arg3: usize) -> isize {
         return -1;
     }
 
+    // # Safety
+    // Reading path string from user pointer. The pointer is assumed to be valid
+    // and pointing to a null-terminated string in user memory.
     let path_bytes = unsafe { core::slice::from_raw_parts(path_ptr as *const u8, 256) };
     let path_len = path_bytes.iter().position(|&b| b == 0).unwrap_or(256);
     let ino = simple_hash(&path_bytes[..path_len]) as u32;
@@ -559,5 +567,174 @@ mod tests {
         let mut mgr = SyscallManager::new();
         let result = mgr.handle(5, 0, 0, 0);
         assert_eq!(result, -1);
+    }
+
+    #[test]
+    fn test_syscall_fork_registered() {
+        let mut mgr = SyscallManager::new();
+        assert!(mgr.handlers[SYSCALL_FORK].is_some());
+    }
+
+    #[test]
+    fn test_syscall_execve_registered() {
+        let mut mgr = SyscallManager::new();
+        assert!(mgr.handlers[SYSCALL_EXECVE].is_some());
+    }
+
+    #[test]
+    fn test_syscall_wait4_registered() {
+        let mut mgr = SyscallManager::new();
+        assert!(mgr.handlers[SYSCALL_WAIT4].is_some());
+    }
+
+    #[test]
+    fn test_syscall_getcwd_registered() {
+        let mut mgr = SyscallManager::new();
+        assert!(mgr.handlers[SYSCALL_GETCWD].is_some());
+    }
+
+    #[test]
+    fn test_syscall_chdir_registered() {
+        let mut mgr = SyscallManager::new();
+        assert!(mgr.handlers[SYSCALL_CHDIR].is_some());
+    }
+
+    #[test]
+    fn test_syscall_mkdir_registered() {
+        let mut mgr = SyscallManager::new();
+        assert!(mgr.handlers[SYSCALL_MKDIR].is_some());
+    }
+
+    #[test]
+    fn test_syscall_rmdir_registered() {
+        let mut mgr = SyscallManager::new();
+        assert!(mgr.handlers[SYSCALL_RMDIR].is_some());
+    }
+
+    #[test]
+    fn test_syscall_unlink_registered() {
+        let mut mgr = SyscallManager::new();
+        assert!(mgr.handlers[SYSCALL_UNLINK].is_some());
+    }
+
+    #[test]
+    fn test_syscall_dup_registered() {
+        let mut mgr = SyscallManager::new();
+        assert!(mgr.handlers[SYSCALL_DUP].is_some());
+    }
+
+    #[test]
+    fn test_syscall_dup2_registered() {
+        let mut mgr = SyscallManager::new();
+        assert!(mgr.handlers[SYSCALL_DUP2].is_some());
+    }
+
+    #[test]
+    fn test_sys_fork_returns_valid_pid() {
+        let result = sys_fork(0, 0, 0);
+        assert!(result > 0 || result == -1);
+    }
+
+    #[test]
+    fn test_sys_execve_with_null_path() {
+        let result = sys_execve(0, 0, 0);
+        assert_eq!(result, -1);
+    }
+
+    #[test]
+    fn test_sys_getcwd_with_zero_buf() {
+        let result = sys_getcwd(0, 0, 0);
+        assert_eq!(result, 0);
+    }
+
+    #[test]
+    fn test_sys_chdir_with_null_path() {
+        let result = sys_chdir(0, 0, 0);
+        assert_eq!(result, -1);
+    }
+
+    #[test]
+    fn test_sys_mkdir_with_null_path() {
+        let result = sys_mkdir(0, 0, 0);
+        assert_eq!(result, -1);
+    }
+
+    #[test]
+    fn test_sys_rmdir_with_null_path() {
+        let result = sys_rmdir(0, 0, 0);
+        assert_eq!(result, -1);
+    }
+
+    #[test]
+    fn test_sys_unlink_with_null_path() {
+        let result = sys_unlink(0, 0, 0);
+        assert_eq!(result, -1);
+    }
+
+    #[test]
+    fn test_sys_dup() {
+        let result = sys_dup(0, 0, 0);
+        assert_eq!(result, 0);
+    }
+
+    #[test]
+    fn test_sys_dup2() {
+        let result = sys_dup2(0, 0, 0);
+        assert_eq!(result, 0);
+    }
+
+    #[test]
+    fn test_fork_result_atomics() {
+        FORK_RESULT.store(42, core::sync::atomic::Ordering::SeqCst);
+        let result = get_fork_result();
+        assert_eq!(result, Some(42));
+    }
+
+    #[test]
+    fn test_fork_result_none_when_zero() {
+        FORK_RESULT.store(0, core::sync::atomic::Ordering::SeqCst);
+        let result = get_fork_result();
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_exec_entry_atomics() {
+        set_exec_entry(0x400000);
+        let entry = get_exec_entry();
+        assert_eq!(entry, 0x400000);
+    }
+
+    #[test]
+    fn test_simple_hash_basic() {
+        let h = simple_hash(b"test");
+        assert!(h > 0);
+    }
+
+    #[test]
+    fn test_simple_hash_deterministic() {
+        let h1 = simple_hash(b"hello");
+        let h2 = simple_hash(b"hello");
+        assert_eq!(h1, h2);
+    }
+
+    #[test]
+    fn test_simple_hash_different_inputs() {
+        let h1 = simple_hash(b"hello");
+        let h2 = simple_hash(b"world");
+        assert_ne!(h1, h2);
+    }
+
+    #[test]
+    fn test_new_syscall_numbers() {
+        assert_eq!(SYSCALL_FORK, 57);
+        assert_eq!(SYSCALL_EXECVE, 59);
+        assert_eq!(SYSCALL_WAIT4, 61);
+        assert_eq!(SYSCALL_GETCWD, 17);
+        assert_eq!(SYSCALL_CHDIR, 80);
+        assert_eq!(SYSCALL_MKDIR, 83);
+        assert_eq!(SYSCALL_RMDIR, 84);
+        assert_eq!(SYSCALL_UNLINK, 87);
+        assert_eq!(SYSCALL_DUP, 32);
+        assert_eq!(SYSCALL_DUP2, 33);
     }
 }
