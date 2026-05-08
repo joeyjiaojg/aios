@@ -27,6 +27,17 @@ pub struct Device {
     pub status: DeviceStatus,
 }
 
+impl Default for Device {
+    fn default() -> Self {
+        Self {
+            id: 0,
+            name: [0u8; 32],
+            device_type: DeviceType::Block,
+            status: DeviceStatus::Inactive,
+        }
+    }
+}
+
 /// Device status
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DeviceStatus {
@@ -302,5 +313,26 @@ mod tests {
         assert_eq!(DeviceType::Block, DeviceType::Block);
         assert_eq!(DeviceType::Char, DeviceType::Char);
         assert_eq!(DeviceType::Net, DeviceType::Net);
+    }
+
+    #[test]
+    fn test_manager_new() {
+        let mgr = DriverManager::new();
+        assert_eq!(mgr.device_count, 0);
+    }
+
+    #[test]
+    fn test_default_for_device() {
+        let dev = Device::default();
+        assert_eq!(dev.id, 0);
+        assert_eq!(dev.device_type, DeviceType::Block);
+    }
+
+    #[test]
+    fn test_write_inactive_device() {
+        let mut mgr = DriverManager::new();
+        let id = mgr.register_device("sde", DeviceType::Char).unwrap();
+        let data = [1u8, 2, 3];
+        assert!(mgr.write_device(id, &data).is_err());
     }
 }
