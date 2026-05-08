@@ -25,6 +25,7 @@ pub mod serial;
 
 pub mod allocator;
 pub mod ata;
+pub mod ext2;
 pub mod gdt;
 pub mod interrupts;
 pub mod keyboard;
