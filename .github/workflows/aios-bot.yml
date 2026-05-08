@@ -6,8 +6,6 @@ name: AIOS Bot
 on:
   issues:
     types: [opened, labeled]
-  pull_request:
-    types: [opened, synchronize, reopened]
   issue_comment:
     types: [created]
   schedule:
@@ -71,6 +69,12 @@ jobs:
           ISSUE_BODY=$(gh issue view $ISSUE_NUMBER --json body --jq '.body')
 
           echo "Issue: $ISSUE_TITLE"
+
+          # Only create branch and proceed if we have a valid issue number
+          if [ -z "$ISSUE_NUMBER" ]; then
+            echo "No valid issue number, skipping"
+            exit 0
+          fi
 
           # Create feature branch
           BRANCH_NAME="feat/auto-issue-$ISSUE_NUMBER"
