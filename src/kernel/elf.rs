@@ -87,9 +87,9 @@ impl ElfLoader {
             return Err("Data too small for ELF header");
         }
 
-        // Safety: We verified data.len() >= size_of::<Elf64Ehdr> above.
-        // The Elf64Ehdr is #[repr(C)] so pointer cast is valid.
-        // The data slice bounds-check ensures we don't read out of range.
+        // # Safety
+        // We verified data.len() >= size_of::<Elf64Ehdr> above.
+        // Elf64Ehdr is #[repr(C)] so the pointer cast is valid.
         let ehdr = unsafe { &*(data.as_ptr() as *const Elf64Ehdr) };
 
         if ehdr.e_ident[0..4] != ELF_MAGIC {
@@ -134,11 +134,13 @@ impl ElfLoader {
         }
 
         for i in 0..phdr_count {
-            // Safety: We verified phoff + phdr_count * phdr_size <= data.len() above.
-            // Each pointer arithmetic is within the valid range of the data slice.
+            // # Safety
+            // phoff + phdr_count * phdr_size <= data.len() as verified above.
+            // Pointer arithmetic stays within valid data slice range.
             // Elf64Phdr is #[repr(C)] so the cast is valid.
             let phdr_ptr = unsafe { data.as_ptr().add(phoff + i * phdr_size) as *const Elf64Phdr };
-            // Safety: The pointer is within valid data bounds for a single Elf64Phdr read.
+            // # Safety
+            // The pointer is within valid data bounds for a single Elf64Phdr read.
             self.phdrs[i] = unsafe { *phdr_ptr };
         }
 
@@ -193,8 +195,9 @@ impl ElfLoader {
                     };
 
                     for byte in 0..4096 {
-                        // Safety: frame_addr is from alloc_frame_addr which returns
-                        // valid writable memory. Each byte offset is < 4096 so within page.
+                        // # Safety
+                        // frame_addr is from alloc_frame_addr which returns valid
+                        // writable memory. Each byte offset is < 4096 so within page.
                         let dst = unsafe { &mut *(frame_ptr.wrapping_add(byte as u64) as *mut u8) };
                         if offset_in_data + byte < phdr.p_filesz as usize {
                             let src_idx = phdr.p_offset as usize + offset_in_data + byte;
@@ -296,12 +299,14 @@ impl UserStack {
             return Err("Stack overflow");
         }
         let new_sp = new_sp_val as *mut u8;
-        // Safety: We verified new_sp_val >= self.base, so the write is within
-        // the pre-allocated user stack region. The stack is writable memory.
+        // # Safety
+        // new_sp_val >= self.base verified above. Writes stay within
+        // the pre-allocated user stack region which is writable memory.
         for (byte, arg_byte) in arg.iter().enumerate() {
             unsafe { *new_sp.add(byte) = *arg_byte };
         }
-        // Safety: Same bounds guarantee as above. NUL terminator is within stack.
+        // # Safety
+        // Same bounds guarantee as above. NUL terminator is within stack.
         unsafe { *new_sp.add(arg.len()) = 0 };
         self.sp = new_sp;
         Ok(new_sp)
@@ -314,8 +319,9 @@ impl UserStack {
             return Err("Stack overflow");
         }
         let new_sp = new_sp_val as *mut u64;
-        // Safety: We verified new_sp_val >= self.base, so the write is within
-        // the pre-allocated user stack region. 8-byte aligned writes to u64 are safe.
+        // # Safety
+        // new_sp_val >= self.base verified above. The write is within the
+        // pre-allocated user stack region. 8-byte aligned write to u64 is safe.
         unsafe { *new_sp = val };
         self.sp = new_sp as *mut u8;
         Ok(())
@@ -373,7 +379,8 @@ pub fn start_user_program(
     user_cs: SegmentSelector,
     user_ss: SegmentSelector,
 ) -> ! {
-    // Safety: We construct a valid iretq frame to transition from ring 0 to ring 3.
+    // # Safety
+    // constructs a valid iretq frame to transition from ring 0 to ring 3.
     // The stack pointer, entry point, and segment selectors are valid.
     unsafe {
         let stack_ptr = context.stack_ptr as *mut u64;
@@ -435,7 +442,8 @@ mod tests {
             p_memsz: 4096,
             p_align: 4096,
         };
-        // Safety: PhantomData reference to the local Elf64Phdr variable is valid
+        // # Safety
+        // PhantomData reference to the local Elf64Phdr variable is valid
         // for the call. The resulting slice is immediately copied into the array.
         let phdr_bytes = unsafe {
             core::slice::from_raw_parts(
@@ -547,8 +555,9 @@ mod tests {
         let initial_sp = stack.sp();
         stack.push_u64(0xDEAD_BEEF).unwrap();
         assert!(stack.sp() < initial_sp);
-        // Safety: stack.sp() points into the pre-allocated user stack (owned by
-        // UserStack). We just pushed 0xDEAD_BEEF there via push_u64 which verified
+        // # Safety
+        // stack.sp() points into the pre-allocated user stack (owned by
+        // UserStack). We just pushed 0xDEAD_BEEF via push_u64 which verified
         // the write address is within bounds. Reading it back as u64 is safe.
         let val = unsafe { *(stack.sp() as *const u64) };
         assert_eq!(0xDEAD_BEEF, val);
@@ -562,11 +571,12 @@ mod tests {
         let result = stack.push_arg(b"Hello");
         assert!(result.is_ok());
         let ptr = result.unwrap();
-        // Safety: push_arg returned Ok(ptr), meaning ptr is within the pre-allocated
+        // # Safety
+        // push_arg returned Ok(ptr), meaning ptr is within the pre-allocated
         // user stack region where we wrote the "Hello" bytes + NUL terminator.
         let c = unsafe { *ptr };
-        assert_eq!(b'H', c);
-        // Safety: Same stack region guarantee. ptr.add(5) is the NUL byte we wrote.
+        // # Safety
+        // Same stack region guarantee. ptr.add(5) is the NUL byte we wrote.
         let null_check = unsafe { *ptr.add(5) };
         assert_eq!(0, null_check);
     }

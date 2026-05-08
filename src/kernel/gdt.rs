@@ -46,13 +46,15 @@ pub fn init() {
     let user_data_selector = gdt.append(Descriptor::user_data_segment());
     let tss_selector = gdt.append(Descriptor::tss_segment(&TSS));
 
-    // Safety: The GDT table is stored in a static spin::Mutex, meaning its
+    // # Safety
+    // The GDT table is stored in a static spin::Mutex, meaning its
     // address in memory is fixed for the system lifetime. load_unsafe() performs
     // the lgdt instruction which reads the table address once. Since the backing
     // storage never moves, the loaded GDT pointer remains valid indefinitely.
     unsafe { gdt.load_unsafe() };
 
-    // Safety: All four segment selectors (code_selector at index 1, data_selector
+    // # Safety
+    // All four segment selectors (code_selector at index 1, data_selector
     // at index 2, user_code at index 3, user_data at index 4) were just appended
     // to the GDT above and the GDT was loaded into the CPU. The tss_selector at
     // index 5 points to the static TSS struct which lives for the program duration.
@@ -76,7 +78,8 @@ pub fn init() {
 }
 
 pub fn setup_tss_stack(kernel_stack_top: VirtAddr) {
-    // Safety: TSS is a static variable (behind spin::Mutex guard), ensuring
+    // # Safety
+    // TSS is a static variable (behind spin::Mutex guard), ensuring
     // its address is fixed. The privilege_stack_table[0] is the ring 0 stack
     // pointer that the CPU loads automatically on interrupts from ring 3.
     // Writing it here is required for proper user→kernel stack switching.
