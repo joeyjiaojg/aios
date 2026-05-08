@@ -14,8 +14,7 @@ const HISTORY_BUFFER_INIT: [[u8; MAX_CMD_LEN]; MAX_HISTORY] = [[0u8; MAX_CMD_LEN
 static HISTORY_BUFFER: spin::Mutex<[[u8; MAX_CMD_LEN]; MAX_HISTORY]> =
     spin::Mutex::new(HISTORY_BUFFER_INIT);
 
-static HISTORY_LENGTHS: spin::Mutex<[usize; MAX_HISTORY]> =
-    spin::Mutex::new([0usize; MAX_HISTORY]);
+static HISTORY_LENGTHS: spin::Mutex<[usize; MAX_HISTORY]> = spin::Mutex::new([0usize; MAX_HISTORY]);
 
 static HISTORY_INDEX: spin::Mutex<usize> = spin::Mutex::new(0);
 static HISTORY_COUNT: spin::Mutex<usize> = spin::Mutex::new(0);

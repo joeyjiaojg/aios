@@ -4,9 +4,9 @@
 // Tool: opencode
 // Prompt: Built-in shell commands for AIOS - cd, pwd, exit, echo, ls, mkdir, rm, cat, set, unset, help, exec.
 
-use crate::shell::{get_current_dir, set_current_dir};
-use crate::ramdisk::RAMDISK;
 use crate::process;
+use crate::ramdisk::RAMDISK;
+use crate::shell::{get_current_dir, set_current_dir};
 
 pub fn cd(args: &[&str]) -> Result<(), &'static str> {
     if args.is_empty() || args[0].is_empty() {
@@ -22,7 +22,10 @@ pub fn cd(args: &[&str]) -> Result<(), &'static str> {
     } else if path == ".." {
         let current = get_current_dir();
         if current != "/" {
-            let mut parts: [&str; 32] = ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""];
+            let mut parts: [&str; 32] = [
+                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                "", "", "", "", "", "", "", "", "", "", "",
+            ];
             let mut count = 0;
             for part in current.trim_end_matches('/').split('/') {
                 if count >= 32 {
@@ -143,19 +146,17 @@ pub fn ls(args: &[&str]) -> Result<(), &'static str> {
         let mut entry_buf = [0u8; 32];
         let bytes_read = ramdisk.read(ino, 0, &mut entry_buf).unwrap_or(0);
 
-        if bytes_read > 0 && entry_buf[0] != 0 {
-            if show_hidden || entry_buf[0] != b'.' {
-                let name_len = bytes_read.min(14);
-                for j in 0..name_len {
-                    if entry_buf[j] != 0 {
-                        crate::serial::write_byte(entry_buf[j]);
-                    }
+        if bytes_read > 0 && entry_buf[0] != 0 && (show_hidden || entry_buf[0] != b'.') {
+            let name_len = bytes_read.min(14);
+            for &byte in entry_buf.iter().take(name_len) {
+                if byte != 0 {
+                    crate::serial::write_byte(byte);
                 }
-                if !long_format {
-                    crate::serial::write_byte(b' ');
-                }
-                crate::serial::write_str("  ");
             }
+            if !long_format {
+                crate::serial::write_byte(b' ');
+            }
+            crate::serial::write_str("  ");
         }
     }
 
@@ -211,7 +212,9 @@ pub fn cat(args: &[&str]) -> Result<(), &'static str> {
     let ramdisk = RAMDISK.lock();
 
     let mut read_buf = [0u8; 256];
-    let bytes_read = ramdisk.read(path_hash as u32, 0, &mut read_buf).unwrap_or(0);
+    let bytes_read = ramdisk
+        .read(path_hash as u32, 0, &mut read_buf)
+        .unwrap_or(0);
 
     if bytes_read == 0 {
         crate::serial::write_str("cat: ");
@@ -220,11 +223,11 @@ pub fn cat(args: &[&str]) -> Result<(), &'static str> {
         return Err("File not found");
     }
 
-    for i in 0..bytes_read {
-        if read_buf[i] == 0 {
+    for &byte in read_buf.iter().take(bytes_read) {
+        if byte == 0 {
             break;
         }
-        crate::serial::write_byte(read_buf[i]);
+        crate::serial::write_byte(byte);
     }
     crate::serial::write_str("\r\n");
 
@@ -294,7 +297,10 @@ fn simple_hash_str(s: &str) -> usize {
         if b == b'/' || b == b'.' {
             continue;
         }
-        hash = hash.wrapping_mul(31).wrapping_add(b as usize).wrapping_add(i);
+        hash = hash
+            .wrapping_mul(31)
+            .wrapping_add(b as usize)
+            .wrapping_add(i);
     }
     if hash == 0 {
         hash = 1;

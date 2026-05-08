@@ -150,7 +150,9 @@ impl ProcessTable {
 
     pub fn wait_for_child(&mut self, parent_pid: usize) -> Option<(usize, i32)> {
         for i in 0..MAX_PROCESSES {
-            if self.processes[i].ppid == parent_pid && self.processes[i].state == ProcessState::Exited {
+            if self.processes[i].ppid == parent_pid
+                && self.processes[i].state == ProcessState::Exited
+            {
                 let pid = self.processes[i].pid;
                 let code = self.processes[i].exit_code;
                 self.processes[i].state = ProcessState::Unused;
@@ -162,17 +164,13 @@ impl ProcessTable {
     }
 
     pub fn find_unused_index(&self) -> Option<usize> {
-        for i in 0..MAX_PROCESSES {
-            if self.processes[i].state == ProcessState::Unused {
-                return Some(i);
-            }
-        }
-        None
+        (0..MAX_PROCESSES).find(|&i| self.processes[i].state == ProcessState::Unused)
     }
 
     pub fn copy_process(&mut self, src_pid: usize, child_pid: usize) -> Option<usize> {
         let src_idx = (0..MAX_PROCESSES).find(|&i| self.processes[i].pid == src_pid)?;
-        let dst_idx = (0..MAX_PROCESSES).find(|&i| self.processes[i].state == ProcessState::Unused)?;
+        let dst_idx =
+            (0..MAX_PROCESSES).find(|&i| self.processes[i].state == ProcessState::Unused)?;
 
         self.processes[dst_idx] = self.processes[src_idx];
         self.processes[dst_idx].pid = child_pid;
@@ -181,7 +179,10 @@ impl ProcessTable {
     }
 
     pub fn process_count(&self) -> usize {
-        self.processes.iter().filter(|p| p.state != ProcessState::Unused).count()
+        self.processes
+            .iter()
+            .filter(|p| p.state != ProcessState::Unused)
+            .count()
     }
 }
 

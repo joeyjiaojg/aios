@@ -37,6 +37,12 @@ impl Token {
     }
 }
 
+impl Default for Token {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub fn tokenize(input: &str) -> Vec<Token> {
     let mut tokens: Vec<Token> = Vec::new();
     let mut pos = 0;
@@ -90,7 +96,9 @@ pub fn tokenize(input: &str) -> Vec<Token> {
 }
 
 pub fn split_command_args(input: &str) -> ([&str; MAX_ARGS], usize) {
-    let mut args: [&str; MAX_ARGS] = ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""];
+    let mut args: [&str; MAX_ARGS] = [
+        "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+    ];
     let mut count = 0;
 
     for token in input.split_whitespace() {
@@ -104,7 +112,10 @@ pub fn split_command_args(input: &str) -> ([&str; MAX_ARGS], usize) {
     (args, count)
 }
 
-pub fn parse_redirection<'a>(tokens: &'a [Token], input: &'a str) -> (Option<&'a str>, Option<&'a str>, bool) {
+pub fn parse_redirection<'a>(
+    tokens: &'a [Token],
+    input: &'a str,
+) -> (Option<&'a str>, Option<&'a str>, bool) {
     let mut in_file: Option<&str> = None;
     let mut out_file: Option<&str> = None;
     let mut append = false;

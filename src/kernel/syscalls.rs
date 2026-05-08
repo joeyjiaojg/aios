@@ -175,7 +175,10 @@ fn sys_fork(_arg1: usize, _arg2: usize, _arg3: usize) -> isize {
 
     // Copy parent's cwd to child process
     if let Some(parent) = crate::process::get_process(parent_pid) {
-        if let Some(child) = crate::process::PROCESS_TABLE.lock().get_process_mut(child_pid) {
+        if let Some(child) = crate::process::PROCESS_TABLE
+            .lock()
+            .get_process_mut(child_pid)
+        {
             child.cwd = parent.cwd;
             child.cwd_len = parent.cwd_len;
         }
@@ -197,9 +200,7 @@ fn sys_execve(path_ptr: usize, _argv: usize, _envp: usize) -> isize {
     }
 
     // Read path string from user pointer
-    let path_bytes = unsafe {
-        core::slice::from_raw_parts(path_ptr as *const u8, 256)
-    };
+    let path_bytes = unsafe { core::slice::from_raw_parts(path_ptr as *const u8, 256) };
     let path_len = path_bytes.iter().position(|&b| b == 0).unwrap_or(256);
     let path = &path_bytes[..path_len];
 
@@ -233,8 +234,16 @@ fn sys_execve(path_ptr: usize, _argv: usize, _envp: usize) -> isize {
         return -1;
     }
 
-    let entry = u64::from_le_bytes([elf_data[24], elf_data[25], elf_data[26], elf_data[27],
-        elf_data[28], elf_data[29], elf_data[30], elf_data[31]]);
+    let entry = u64::from_le_bytes([
+        elf_data[24],
+        elf_data[25],
+        elf_data[26],
+        elf_data[27],
+        elf_data[28],
+        elf_data[29],
+        elf_data[30],
+        elf_data[31],
+    ]);
 
     // Store exec result: entry point for the new program
     EXEC_ENTRY.store(entry, core::sync::atomic::Ordering::SeqCst);
@@ -294,9 +303,7 @@ fn sys_chdir(path_ptr: usize, _arg2: usize, _arg3: usize) -> isize {
 
     // # Safety
     // Reading path string from user pointer. The pointer is assumed valid.
-    let path_bytes = unsafe {
-        core::slice::from_raw_parts(path_ptr as *const u8, 256)
-    };
+    let path_bytes = unsafe { core::slice::from_raw_parts(path_ptr as *const u8, 256) };
     let path_len = path_bytes.iter().position(|&b| b == 0).unwrap_or(256);
     let path = core::str::from_utf8(&path_bytes[..path_len]).unwrap_or("");
 
@@ -319,9 +326,7 @@ fn sys_mkdir(path_ptr: usize, _mode: usize, _arg3: usize) -> isize {
         return -1;
     }
 
-    let path_bytes = unsafe {
-        core::slice::from_raw_parts(path_ptr as *const u8, 256)
-    };
+    let path_bytes = unsafe { core::slice::from_raw_parts(path_ptr as *const u8, 256) };
     let path_len = path_bytes.iter().position(|&b| b == 0).unwrap_or(256);
 
     let ino = simple_hash(&path_bytes[..path_len]) as u32;
@@ -339,9 +344,7 @@ fn sys_rmdir(path_ptr: usize, _arg2: usize, _arg3: usize) -> isize {
         return -1;
     }
 
-    let path_bytes = unsafe {
-        core::slice::from_raw_parts(path_ptr as *const u8, 256)
-    };
+    let path_bytes = unsafe { core::slice::from_raw_parts(path_ptr as *const u8, 256) };
     let path_len = path_bytes.iter().position(|&b| b == 0).unwrap_or(256);
     let ino = simple_hash(&path_bytes[..path_len]) as u32;
 
@@ -357,9 +360,7 @@ fn sys_unlink(path_ptr: usize, _arg2: usize, _arg3: usize) -> isize {
         return -1;
     }
 
-    let path_bytes = unsafe {
-        core::slice::from_raw_parts(path_ptr as *const u8, 256)
-    };
+    let path_bytes = unsafe { core::slice::from_raw_parts(path_ptr as *const u8, 256) };
     let path_len = path_bytes.iter().position(|&b| b == 0).unwrap_or(256);
     let ino = simple_hash(&path_bytes[..path_len]) as u32;
 
@@ -383,7 +384,10 @@ fn simple_hash(data: &[u8]) -> usize {
         if b == b'/' || b == b'.' {
             continue;
         }
-        hash = hash.wrapping_mul(31).wrapping_add(b as usize).wrapping_add(i);
+        hash = hash
+            .wrapping_mul(31)
+            .wrapping_add(b as usize)
+            .wrapping_add(i);
     }
     if hash == 0 {
         hash = 1;
@@ -397,7 +401,11 @@ static EXEC_ENTRY: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64
 
 pub fn get_fork_result() -> Option<usize> {
     let val = FORK_RESULT.swap(0, core::sync::atomic::Ordering::SeqCst);
-    if val == 0 { None } else { Some(val) }
+    if val == 0 {
+        None
+    } else {
+        Some(val)
+    }
 }
 
 pub fn get_exec_entry() -> u64 {

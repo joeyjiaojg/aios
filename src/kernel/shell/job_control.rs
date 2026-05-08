@@ -85,7 +85,10 @@ impl JobTable {
 
     pub fn get_job(&self, jid: usize) -> Option<&Job> {
         for i in 0..MAX_JOBS {
-            if self.jobs[i].jid == jid && self.jobs[i].state != JobState::Terminated && self.jobs[i].state != JobState::Done {
+            if self.jobs[i].jid == jid
+                && self.jobs[i].state != JobState::Terminated
+                && self.jobs[i].state != JobState::Done
+            {
                 return Some(&self.jobs[i]);
             }
         }
@@ -94,7 +97,10 @@ impl JobTable {
 
     pub fn get_job_mut(&mut self, jid: usize) -> Option<&mut Job> {
         for i in 0..MAX_JOBS {
-            if self.jobs[i].jid == jid && self.jobs[i].state != JobState::Terminated && self.jobs[i].state != JobState::Done {
+            if self.jobs[i].jid == jid
+                && self.jobs[i].state != JobState::Terminated
+                && self.jobs[i].state != JobState::Done
+            {
                 return Some(&mut self.jobs[i]);
             }
         }

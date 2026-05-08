@@ -4,10 +4,10 @@
 // Tool: opencode
 // Prompt: Shell module root - exports parser, builtins, job_control, history submodules.
 
-pub mod parser;
 pub mod builtins;
-pub mod job_control;
 pub mod history;
+pub mod job_control;
+pub mod parser;
 
 pub const MAX_INPUT_LEN: usize = 256;
 pub const MAX_ARGS: usize = 16;
@@ -42,7 +42,7 @@ pub fn get_current_dir() -> String {
     if let Some(proc) = crate::process::get_current_process() {
         let cwd = proc.get_cwd_str();
         let mut buf = CURRENT_DIR_BUFFER.lock();
-        let len = cwd.as_bytes().len().min(255);
+        let len = cwd.len().min(255);
         buf[..len].copy_from_slice(cwd.as_bytes());
         buf[len] = 0;
         let result = core::str::from_utf8(&buf[..len]).unwrap_or("/").to_string();
