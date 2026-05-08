@@ -196,8 +196,12 @@ impl ElfLoader {
 
                     for byte in 0..4096 {
                         // # Safety
-                        // frame_addr is from alloc_frame_addr which returns valid
-                        // writable memory. Each byte offset is < 4096 so within page.
+                        // alloc_frame_addr returns a pointer to a pre-allocated physical frame.
+                        // phys_base is the virtual address of the physical memory base region.
+                        // The kernel identity-maps physical memory, so phys_base + idx*4096
+                        // gives a directly dereferenceable virtual address. frame_ptr.wrapping_add
+                        // computes the virtual address of byte 'byte' within this frame, which
+                        // is writable kernel memory (no other mapping needed).
                         let dst = unsafe { &mut *(frame_ptr.wrapping_add(byte as u64) as *mut u8) };
                         if offset_in_data + byte < phdr.p_filesz as usize {
                             let src_idx = phdr.p_offset as usize + offset_in_data + byte;
