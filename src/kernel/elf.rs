@@ -87,6 +87,9 @@ impl ElfLoader {
             return Err("Data too small for ELF header");
         }
 
+        // Safety: We verified data.len() >= size_of::<Elf64Ehdr> above.
+        // The Elf64Ehdr is #[repr(C)] so pointer cast is valid.
+        // The data slice bounds-check ensures we don't read out of range.
         let ehdr = unsafe { &*(data.as_ptr() as *const Elf64Ehdr) };
 
         if ehdr.e_ident[0..4] != ELF_MAGIC {
@@ -131,7 +134,11 @@ impl ElfLoader {
         }
 
         for i in 0..phdr_count {
+            // Safety: We verified phoff + phdr_count * phdr_size <= data.len() above.
+            // Each pointer arithmetic is within the valid range of the data slice.
+            // Elf64Phdr is #[repr(C)] so the cast is valid.
             let phdr_ptr = unsafe { data.as_ptr().add(phoff + i * phdr_size) as *const Elf64Phdr };
+            // Safety: The pointer is within valid data bounds for a single Elf64Phdr read.
             self.phdrs[i] = unsafe { *phdr_ptr };
         }
 
@@ -186,6 +193,8 @@ impl ElfLoader {
                     };
 
                     for byte in 0..4096 {
+                        // Safety: frame_addr is from alloc_frame_addr which returns
+                        // valid writable memory. Each byte offset is < 4096 so within page.
                         let dst = unsafe { &mut *(frame_ptr.wrapping_add(byte as u64) as *mut u8) };
                         if offset_in_data + byte < phdr.p_filesz as usize {
                             let src_idx = phdr.p_offset as usize + offset_in_data + byte;
@@ -287,9 +296,12 @@ impl UserStack {
             return Err("Stack overflow");
         }
         let new_sp = new_sp_val as *mut u8;
+        // Safety: We verified new_sp_val >= self.base, so the write is within
+        // the pre-allocated user stack region. The stack is writable memory.
         for (byte, arg_byte) in arg.iter().enumerate() {
             unsafe { *new_sp.add(byte) = *arg_byte };
         }
+        // Safety: Same bounds guarantee as above. NUL terminator is within stack.
         unsafe { *new_sp.add(arg.len()) = 0 };
         self.sp = new_sp;
         Ok(new_sp)
@@ -302,6 +314,8 @@ impl UserStack {
             return Err("Stack overflow");
         }
         let new_sp = new_sp_val as *mut u64;
+        // Safety: We verified new_sp_val >= self.base, so the write is within
+        // the pre-allocated user stack region. 8-byte aligned writes to u64 are safe.
         unsafe { *new_sp = val };
         self.sp = new_sp as *mut u8;
         Ok(())
@@ -421,6 +435,8 @@ mod tests {
             p_memsz: 4096,
             p_align: 4096,
         };
+        // Safety: PhantomData reference to the local Elf64Phdr variable is valid
+        // for the call. The resulting slice is immediately copied into the array.
         let phdr_bytes = unsafe {
             core::slice::from_raw_parts(
                 &phdr as *const Elf64Phdr as *const u8,
@@ -531,6 +547,8 @@ mod tests {
         let initial_sp = stack.sp();
         stack.push_u64(0xDEAD_BEEF).unwrap();
         assert!(stack.sp() < initial_sp);
+        let val = unsafe { *(stack.sp() as *const u64) };
+        assert_eq!(0xDEAD_BEEF, val);
     }
 
     #[test]
@@ -540,5 +558,10 @@ mod tests {
         let mut stack = UserStack::new(&mut alloc, 0x100000 as *mut u8).unwrap();
         let result = stack.push_arg(b"Hello");
         assert!(result.is_ok());
+        let ptr = result.unwrap();
+        let c = unsafe { *ptr };
+        assert_eq!(b'H', c);
+        let null_check = unsafe { *ptr.add(5) };
+        assert_eq!(0, null_check);
     }
 }

@@ -46,11 +46,13 @@ pub fn init() {
     let user_data_selector = gdt.append(Descriptor::user_data_segment());
     let tss_selector = gdt.append(Descriptor::tss_segment(&TSS));
 
-    // Safety: The GDT table lives in a static mutex, ensuring it remains valid
-    // for the lifetime of the system. The address won't change.
+    // Safety: The GDT table lives in a static mutex, ensuring the table address
+    // remains valid for the system lifetime after we load it here.
     unsafe { gdt.load_unsafe() };
 
-    // Safety: The segment selectors just created point to valid GDT entries.
+    // Safety: Segment selectors index into the GDT we just loaded above.
+    // Kernel code/data selectors are at valid indices 1 and 2.
+    // load_tss uses the TSS descriptor at index 5 which points to our static TSS.
     unsafe {
         CS::set_reg(code_selector);
         DS::set_reg(data_selector);
@@ -69,6 +71,9 @@ pub fn init() {
 }
 
 pub fn setup_tss_stack(kernel_stack_top: VirtAddr) {
+    // Safety: TSS is a mutable static (behind spin::Mutex guard pattern)
+    // and setting privilege_stack_table[0] is required for ring 3→ring 0
+    // stack switching on interrupts. The TSS remains valid for system lifetime.
     unsafe {
         let tss = &TSS as *const TaskStateSegment as *mut TaskStateSegment;
         (*tss).privilege_stack_table[0] = kernel_stack_top;
