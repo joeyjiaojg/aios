@@ -33,6 +33,7 @@ pub mod interrupts;
 pub mod keyboard;
 pub mod memory;
 pub mod network;
+pub mod pci;
 pub mod pic;
 pub mod ramdisk;
 pub mod syscalls;
