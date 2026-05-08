@@ -285,13 +285,13 @@ mod tests {
     fn test_pci_device_new() {
         let dev = PciDevice::new();
         assert!(!dev.present);
-        assert_eq!(dev.vendor_id, 0xFFFF);
+        assert_eq!(0xFFFF, dev.vendor_id);
     }
 
     #[test]
     fn test_pci_bus_new() {
         let bus = PciBus::new();
-        assert_eq!(bus.device_count(), 0);
+        assert_eq!(0, bus.device_count());
     }
 
     #[test]
@@ -303,7 +303,7 @@ mod tests {
     #[test]
     fn test_pci_bus_default() {
         let bus = PciBus::default();
-        assert_eq!(bus.device_count(), 0);
+        assert_eq!(0, bus.device_count());
     }
 
     #[test]
@@ -311,24 +311,24 @@ mod tests {
         let mut dev = PciDevice::new();
         dev.bars[0] = 0x12345678;
         dev.bars[5] = 0xABCDEF00;
-        assert_eq!(dev.get_bar(0), Some(0x12345678));
-        assert_eq!(dev.get_bar(5), Some(0xABCDEF00));
-        assert_eq!(dev.get_bar(6), None);
+        assert_eq!(Some(0x12345678), dev.get_bar(0));
+        assert_eq!(Some(0xABCDEF00), dev.get_bar(5));
+        assert_eq!(None, dev.get_bar(6));
     }
 
     #[test]
     fn test_make_address() {
         let bus = PciBus::new();
         let addr = bus.make_address(0, 0, 0, 0);
-        assert_eq!(addr, 0x80000000);
+        assert_eq!(0x80000000, addr);
 
         let addr2 = bus.make_address(1, 2, 3, 4);
-        assert_eq!(addr2, 0x8001_2104);
+        assert_eq!(0x8001_2104, addr2);
     }
 
     #[test]
     fn test_pci_max_devices() {
-        assert_eq!(PCI_MAX_DEVICES, 256);
+        assert_eq!(256, PCI_MAX_DEVICES);
     }
 
     #[test]
