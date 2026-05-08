@@ -547,6 +547,9 @@ mod tests {
         let initial_sp = stack.sp();
         stack.push_u64(0xDEAD_BEEF).unwrap();
         assert!(stack.sp() < initial_sp);
+        // Safety: stack.sp() points into the pre-allocated user stack (owned by
+        // UserStack). We just pushed 0xDEAD_BEEF there via push_u64 which verified
+        // the write address is within bounds. Reading it back as u64 is safe.
         let val = unsafe { *(stack.sp() as *const u64) };
         assert_eq!(0xDEAD_BEEF, val);
     }
@@ -559,8 +562,11 @@ mod tests {
         let result = stack.push_arg(b"Hello");
         assert!(result.is_ok());
         let ptr = result.unwrap();
+        // Safety: push_arg returned Ok(ptr), meaning ptr is within the pre-allocated
+        // user stack region where we wrote the "Hello" bytes + NUL terminator.
         let c = unsafe { *ptr };
         assert_eq!(b'H', c);
+        // Safety: Same stack region guarantee. ptr.add(5) is the NUL byte we wrote.
         let null_check = unsafe { *ptr.add(5) };
         assert_eq!(0, null_check);
     }
