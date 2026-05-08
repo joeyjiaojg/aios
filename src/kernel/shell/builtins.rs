@@ -6,7 +6,7 @@
 
 use crate::process;
 use crate::ramdisk::RAMDISK;
-use crate::shell::{get_current_dir, set_current_dir};
+use crate::shell::{get_current_dir_str, set_current_dir};
 
 pub fn cd(args: &[&str]) -> Result<(), &'static str> {
     if args.is_empty() || args[0].is_empty() {
@@ -20,7 +20,7 @@ pub fn cd(args: &[&str]) -> Result<(), &'static str> {
         set_current_dir("/home")?;
         Ok(())
     } else if path == ".." {
-        let current = get_current_dir();
+        let current = get_current_dir_str();
         if current != "/" {
             let mut parts: [&str; 32] = [
                 "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
@@ -63,7 +63,7 @@ pub fn cd(args: &[&str]) -> Result<(), &'static str> {
         set_current_dir(path)?;
         Ok(())
     } else {
-        let current = get_current_dir();
+        let current = get_current_dir_str();
         let mut new_path = [0u8; 256];
         let mut pos = 0;
         for &b in current.as_bytes() {
@@ -90,7 +90,7 @@ pub fn cd(args: &[&str]) -> Result<(), &'static str> {
 }
 
 pub fn pwd() -> Result<(), &'static str> {
-    crate::serial::write_str(&get_current_dir());
+    crate::serial::write_str(get_current_dir_str());
     crate::serial::write_str("\r\n");
     Ok(())
 }
@@ -127,9 +127,9 @@ pub fn ls(args: &[&str]) -> Result<(), &'static str> {
     let show_hidden = args.contains(&"-a");
     let long_format = args.contains(&"-l");
 
-    let current = get_current_dir();
+    let current = get_current_dir_str();
     let path: &str = if args.is_empty() || args[0].starts_with('-') {
-        &current
+        current
     } else {
         args[0]
     };

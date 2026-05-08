@@ -5,7 +5,6 @@
 // Prompt: Command history tracking for AIOS shell using a 64-entry circular buffer.
 
 use crate::shell::MAX_HISTORY;
-use alloc::string::{String, ToString};
 
 const MAX_CMD_LEN: usize = 128;
 
@@ -39,7 +38,7 @@ pub fn add_entry(command: &str) {
     }
 }
 
-pub fn get_entry(index: usize) -> Option<String> {
+pub fn get_entry(index: usize, buf: &mut [u8]) -> Option<usize> {
     let count = *HISTORY_COUNT.lock();
     let idx = *HISTORY_INDEX.lock();
 
@@ -53,10 +52,10 @@ pub fn get_entry(index: usize) -> Option<String> {
         return None;
     }
     let history = HISTORY_BUFFER.lock();
-    let mut cmd_bytes = [0u8; MAX_CMD_LEN];
-    cmd_bytes.copy_from_slice(&history[actual_idx][..len]);
-    drop(history);
-    String::from_utf8(cmd_bytes[..len].to_vec()).ok()
+    let copy_len = len.min(buf.len().saturating_sub(1));
+    buf[..copy_len].copy_from_slice(&history[actual_idx][..copy_len]);
+    buf[copy_len] = 0;
+    Some(copy_len)
 }
 
 pub fn show_history() -> Result<(), &'static str> {
@@ -77,7 +76,7 @@ pub fn show_history() -> Result<(), &'static str> {
         if len > 0 {
             let cmd_slice = &history[actual_idx][..len];
             if let Ok(cmd) = core::str::from_utf8(cmd_slice) {
-                crate::serial::write_str(i.to_string().as_str());
+                write_usize(i);
                 crate::serial::write_str("  ");
                 crate::serial::write_str(cmd);
                 crate::serial::write_str("\r\n");
@@ -86,6 +85,24 @@ pub fn show_history() -> Result<(), &'static str> {
     }
 
     Ok(())
+}
+
+fn write_usize(n: usize) {
+    let mut buf = [0u8; 20];
+    let mut len = 0;
+    if n == 0 {
+        crate::serial::write_byte(b'0');
+        return;
+    }
+    let mut x = n;
+    while x > 0 {
+        buf[len] = b'0' + (x % 10) as u8;
+        x /= 10;
+        len += 1;
+    }
+    for i in (0..len).rev() {
+        crate::serial::write_byte(buf[i]);
+    }
 }
 
 pub fn clear_history() {
@@ -121,7 +138,8 @@ mod tests {
     fn test_get_entry_invalid_index() {
         clear_history();
         add_entry("test");
-        let result = get_entry(100);
+        let mut buf = [0u8; MAX_CMD_LEN];
+        let result = get_entry(100, &mut buf);
         assert!(result.is_none());
     }
 
@@ -175,8 +193,9 @@ mod tests {
         clear_history();
         add_entry("first");
         add_entry("second");
-        let entry = get_entry(0);
-        assert!(entry.is_some());
+        let mut buf = [0u8; MAX_CMD_LEN];
+        let result = get_entry(0, &mut buf);
+        assert!(result.is_some());
     }
 
     #[test]

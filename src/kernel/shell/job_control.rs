@@ -5,8 +5,6 @@
 // Prompt: Job control for AIOS shell - track background jobs, fg, bg commands.
 
 use crate::shell::MAX_JOBS;
-use alloc::string::ToString;
-use alloc::vec::Vec;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JobState {
@@ -119,14 +117,14 @@ impl JobTable {
         }
     }
 
-    pub fn list_all_jobs(&self) -> Vec<&Job> {
-        let mut result: Vec<&Job> = Vec::new();
+    pub fn count_active_jobs(&self) -> usize {
+        let mut count = 0;
         for i in 0..MAX_JOBS {
             if self.jobs[i].state != JobState::Terminated && self.jobs[i].state != JobState::Done {
-                result.push(&self.jobs[i]);
+                count += 1;
             }
         }
-        result
+        count
     }
 
     pub fn get_next_jid(&self) -> usize {
@@ -158,29 +156,49 @@ pub fn remove_job(jid: usize) {
     JOB_TABLE.lock().remove_job(jid);
 }
 
+fn write_usize(n: usize) {
+    let mut buf = [0u8; 20];
+    let mut len = 0;
+    if n == 0 {
+        crate::serial::write_byte(b'0');
+        return;
+    }
+    let mut x = n;
+    while x > 0 {
+        buf[len] = b'0' + (x % 10) as u8;
+        x /= 10;
+        len += 1;
+    }
+    for i in (0..len).rev() {
+        crate::serial::write_byte(buf[i]);
+    }
+}
+
 pub fn list_jobs() -> Result<(), &'static str> {
     let table = JOB_TABLE.lock();
-    let jobs = table.list_all_jobs();
+    let count = table.count_active_jobs();
 
-    if jobs.is_empty() {
+    if count == 0 {
         crate::serial::write_str("No jobs.\r\n");
         return Ok(());
     }
 
-    for job in jobs {
-        let state_str = match job.state {
-            JobState::Running => "Running",
-            JobState::Stopped => "Stopped",
-            JobState::Terminated => "Terminated",
-            JobState::Done => "Done",
-        };
-        crate::serial::write_str("[");
-        crate::serial::write_str(job.jid.to_string().as_str());
-        crate::serial::write_str("] ");
-        crate::serial::write_str(state_str);
-        crate::serial::write_str("  ");
-        crate::serial::write_str(job.get_command_str());
-        crate::serial::write_str("\r\n");
+    for i in 0..MAX_JOBS {
+        if table.jobs[i].state != JobState::Terminated && table.jobs[i].state != JobState::Done {
+            let state_str = match table.jobs[i].state {
+                JobState::Running => "Running",
+                JobState::Stopped => "Stopped",
+                JobState::Terminated => "Terminated",
+                JobState::Done => "Done",
+            };
+            crate::serial::write_str("[");
+            write_usize(table.jobs[i].jid);
+            crate::serial::write_str("] ");
+            crate::serial::write_str(state_str);
+            crate::serial::write_str("  ");
+            crate::serial::write_str(table.jobs[i].get_command_str());
+            crate::serial::write_str("\r\n");
+        }
     }
 
     Ok(())
@@ -197,7 +215,7 @@ pub fn fg(args: &[&str]) -> Result<(), &'static str> {
     let table = JOB_TABLE.lock();
     if let Some(job) = table.get_job(jid) {
         crate::serial::write_str("Bringing job [");
-        crate::serial::write_str(jid.to_string().as_str());
+        write_usize(jid);
         crate::serial::write_str("] to foreground: ");
         crate::serial::write_str(job.get_command_str());
         crate::serial::write_str("\r\n");
@@ -220,7 +238,7 @@ pub fn bg(args: &[&str]) -> Result<(), &'static str> {
     if let Some(job) = table.get_job_mut(jid) {
         job.state = JobState::Running;
         crate::serial::write_str("Resuming job [");
-        crate::serial::write_str(jid.to_string().as_str());
+        write_usize(jid);
         crate::serial::write_str("] in background: ");
         crate::serial::write_str(job.get_command_str());
         crate::serial::write_str("\r\n");
@@ -312,19 +330,19 @@ mod tests {
     }
 
     #[test]
-    fn test_list_all_jobs() {
+    fn test_count_active_jobs() {
         let mut table = JobTable::new();
         table.add_job(100, "ls").unwrap();
         table.add_job(101, "cat").unwrap();
-        let jobs = table.list_all_jobs();
-        assert!(jobs.len() <= MAX_JOBS);
+        let count = table.count_active_jobs();
+        assert!(count <= MAX_JOBS);
     }
 
     #[test]
-    fn test_list_all_jobs_empty() {
+    fn test_count_active_jobs_empty() {
         let table = JobTable::new();
-        let jobs = table.list_all_jobs();
-        assert_eq!(jobs.len(), 0);
+        let count = table.count_active_jobs();
+        assert_eq!(count, 0);
     }
 
     #[test]

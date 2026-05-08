@@ -34,21 +34,22 @@ pub fn run_shell() {
     set_running(true);
 }
 
-use alloc::string::{String, ToString};
+pub fn get_current_dir_str() -> &'static str {
+    "/"
+}
 
-static CURRENT_DIR_BUFFER: spin::Mutex<[u8; 256]> = spin::Mutex::new([0u8; 256]);
-
-pub fn get_current_dir() -> String {
+pub fn get_current_dir(buf: &mut [u8]) -> usize {
     if let Some(proc) = crate::process::get_current_process() {
         let cwd = proc.get_cwd_str();
-        let mut buf = CURRENT_DIR_BUFFER.lock();
-        let len = cwd.len().min(255);
-        buf[..len].copy_from_slice(cwd.as_bytes());
-        buf[len] = 0;
-        let result = core::str::from_utf8(&buf[..len]).unwrap_or("/").to_string();
-        result
+        let src_bytes = cwd.as_bytes();
+        let copy_len = src_bytes.len().min(buf.len().saturating_sub(1)).min(255);
+        buf[..copy_len].copy_from_slice(&src_bytes[..copy_len]);
+        buf[copy_len] = 0;
+        copy_len
     } else {
-        "/".to_string()
+        buf[0] = b'/';
+        buf[1] = 0;
+        1
     }
 }
 

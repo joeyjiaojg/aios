@@ -5,8 +5,8 @@
 // Prompt: Command parsing utilities for AIOS shell.
 
 use crate::shell::MAX_ARGS;
-use alloc::vec::Vec;
 
+pub const MAX_TOKENS: usize = 32;
 pub const TOKEN_DELIMITERS: &[u8] = b" \t\n\r";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,12 +43,13 @@ impl Default for Token {
     }
 }
 
-pub fn tokenize(input: &str) -> Vec<Token> {
-    let mut tokens: Vec<Token> = Vec::new();
+pub fn tokenize(input: &str) -> ([Token; MAX_TOKENS], usize) {
+    let mut tokens: [Token; MAX_TOKENS] = [Token::new(); MAX_TOKENS];
+    let mut count = 0;
     let mut pos = 0;
     let input_bytes = input.as_bytes();
 
-    while pos < input_bytes.len() {
+    while pos < input_bytes.len() && count < MAX_TOKENS {
         while pos < input_bytes.len() && TOKEN_DELIMITERS.contains(&input_bytes[pos]) {
             pos += 1;
         }
@@ -84,15 +85,16 @@ pub fn tokenize(input: &str) -> Vec<Token> {
             }
         };
 
-        tokens.push(Token {
+        tokens[count] = Token {
             token_type,
             start,
             end: new_pos,
-        });
+        };
+        count += 1;
         pos = new_pos;
     }
 
-    tokens
+    (tokens, count)
 }
 
 pub fn split_command_args(input: &str) -> ([&str; MAX_ARGS], usize) {
@@ -178,26 +180,26 @@ mod tests {
 
     #[test]
     fn test_tokenize_simple() {
-        let tokens = tokenize("ls -la");
-        assert!(tokens.len() >= 2);
+        let (tokens, count) = tokenize("ls -la");
+        assert!(count >= 2);
     }
 
     #[test]
     fn test_tokenize_empty() {
-        let tokens = tokenize("");
-        assert_eq!(tokens.len(), 0);
+        let (_, count) = tokenize("");
+        assert_eq!(count, 0);
     }
 
     #[test]
     fn test_tokenize_with_redirect() {
-        let tokens = tokenize("cat < input.txt > output.txt");
-        assert!(tokens.len() >= 5);
+        let (_, count) = tokenize("cat < input.txt > output.txt");
+        assert!(count >= 5);
     }
 
     #[test]
     fn test_tokenize_with_pipe() {
-        let tokens = tokenize("ls | grep test");
-        assert!(tokens.len() >= 3);
+        let (_, count) = tokenize("ls | grep test");
+        assert!(count >= 3);
     }
 
     #[test]
@@ -223,42 +225,42 @@ mod tests {
 
     #[test]
     fn test_parse_redirection_input() {
-        let tokens = tokenize("cat < input.txt");
-        let (in_file, _, _) = parse_redirection(&tokens, "cat < input.txt");
+        let (tokens, count) = tokenize("cat < input.txt");
+        let (in_file, _, _) = parse_redirection(&tokens[..count], "cat < input.txt");
         assert!(in_file.is_some());
     }
 
     #[test]
     fn test_parse_redirection_output() {
-        let tokens = tokenize("echo hello > output.txt");
-        let (_, out_file, _) = parse_redirection(&tokens, "echo hello > output.txt");
+        let (tokens, count) = tokenize("echo hello > output.txt");
+        let (_, out_file, _) = parse_redirection(&tokens[..count], "echo hello > output.txt");
         assert!(out_file.is_some());
     }
 
     #[test]
     fn test_parse_redirection_append() {
-        let tokens = tokenize("echo hello >> output.txt");
-        let (_, out_file, append) = parse_redirection(&tokens, "echo hello >> output.txt");
+        let (tokens, count) = tokenize("echo hello >> output.txt");
+        let (_, out_file, append) = parse_redirection(&tokens[..count], "echo hello >> output.txt");
         assert!(out_file.is_some());
         assert!(append);
     }
 
     #[test]
     fn test_is_background() {
-        let tokens = tokenize("ls &");
-        assert!(is_background(&tokens));
+        let (tokens, count) = tokenize("ls &");
+        assert!(is_background(&tokens[..count]));
     }
 
     #[test]
     fn test_is_background_no_ampersand() {
-        let tokens = tokenize("ls");
-        assert!(!is_background(&tokens));
+        let (tokens, count) = tokenize("ls");
+        assert!(!is_background(&tokens[..count]));
     }
 
     #[test]
     fn test_tokenize_whitespace_only() {
-        let tokens = tokenize("   \t\n   ");
-        assert_eq!(tokens.len(), 0);
+        let (_, count) = tokenize("   \t\n   ");
+        assert_eq!(count, 0);
     }
 
     #[test]

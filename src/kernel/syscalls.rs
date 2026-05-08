@@ -287,7 +287,6 @@ fn sys_getcwd(buf_ptr: usize, size: usize, _arg3: usize) -> isize {
     // # Safety
     // Writing to user-provided buffer. The buffer pointer and size have been
     // validated. The path string is null-terminated.
-    #[allow(clippy::undocumented_unsafe_blocks)]
     unsafe {
         core::slice::from_raw_parts_mut(buf_ptr as *mut u8, path_bytes.len())
             .copy_from_slice(path_bytes);
