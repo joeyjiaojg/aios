@@ -46,13 +46,18 @@ pub fn init() {
     let user_data_selector = gdt.append(Descriptor::user_data_segment());
     let tss_selector = gdt.append(Descriptor::tss_segment(&TSS));
 
-    // Safety: The GDT table lives in a static mutex, ensuring the table address
-    // remains valid for the system lifetime after we load it here.
+    // Safety: The GDT table is stored in a static spin::Mutex, meaning its
+    // address in memory is fixed for the system lifetime. load_unsafe() performs
+    // the lgdt instruction which reads the table address once. Since the backing
+    // storage never moves, the loaded GDT pointer remains valid indefinitely.
     unsafe { gdt.load_unsafe() };
 
-    // Safety: Segment selectors index into the GDT we just loaded above.
-    // Kernel code/data selectors are at valid indices 1 and 2.
-    // load_tss uses the TSS descriptor at index 5 which points to our static TSS.
+    // Safety: All four segment selectors (code_selector at index 1, data_selector
+    // at index 2, user_code at index 3, user_data at index 4) were just appended
+    // to the GDT above and the GDT was loaded into the CPU. The tss_selector at
+    // index 5 points to the static TSS struct which lives for the program duration.
+    // Setting these segment registers with valid GDT entries is the standard way
+    // to activate kernel segments on x86_64.
     unsafe {
         CS::set_reg(code_selector);
         DS::set_reg(data_selector);
@@ -71,9 +76,10 @@ pub fn init() {
 }
 
 pub fn setup_tss_stack(kernel_stack_top: VirtAddr) {
-    // Safety: TSS is a mutable static (behind spin::Mutex guard pattern)
-    // and setting privilege_stack_table[0] is required for ring 3→ring 0
-    // stack switching on interrupts. The TSS remains valid for system lifetime.
+    // Safety: TSS is a static variable (behind spin::Mutex guard), ensuring
+    // its address is fixed. The privilege_stack_table[0] is the ring 0 stack
+    // pointer that the CPU loads automatically on interrupts from ring 3.
+    // Writing it here is required for proper user→kernel stack switching.
     unsafe {
         let tss = &TSS as *const TaskStateSegment as *mut TaskStateSegment;
         (*tss).privilege_stack_table[0] = kernel_stack_top;
