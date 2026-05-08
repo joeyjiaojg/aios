@@ -4,7 +4,6 @@
 // Tool: opencode
 // Prompt: Create device driver framework for AIOS x86_64 kernel in Rust no_std with Device struct, DriverManager with 16 devices, spin::Mutex
 
-
 use spin::Mutex;
 use x86_64::instructions::port::{Port, PortReadOnly};
 
@@ -20,12 +19,23 @@ pub enum DeviceType {
 }
 
 /// Device structure
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Device {
     pub id: u64,
     pub name: [u8; 32],
     pub device_type: DeviceType,
     pub status: DeviceStatus,
+}
+
+impl Default for Device {
+    fn default() -> Self {
+        Self {
+            id: 0,
+            name: [0u8; 32],
+            device_type: DeviceType::Block,
+            status: DeviceStatus::Inactive,
+        }
+    }
 }
 
 /// Device status
@@ -52,9 +62,21 @@ impl DriverManager {
             device_count: 0,
         }
     }
+}
 
+impl Default for DriverManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl DriverManager {
     /// Register a new device
-    pub fn register_device(&mut self, name: &str, device_type: DeviceType) -> Result<u64, DriverError> {
+    pub fn register_device(
+        &mut self,
+        name: &str,
+        device_type: DeviceType,
+    ) -> Result<u64, DriverError> {
         if self.device_count >= MAX_DEVICES {
             return Err(DriverError::ManagerFull);
         }
@@ -88,7 +110,7 @@ impl DriverManager {
         for i in 0..MAX_DEVICES {
             if let Some(ref dev) = self.devices[i] {
                 if dev.id == id {
-                    return Ok(dev.clone());
+                    return Ok(*dev);
                 }
             }
         }
@@ -107,22 +129,23 @@ impl DriverManager {
         let mut status_port = PortReadOnly::new(base_port + 1);
 
         let mut bytes_read = 0;
+        let buffer_len = buffer.len();
         for byte in buffer.iter_mut() {
             // Safety: Reading from I/O ports is safe when the port address is valid
             // and we only read from ports that don't have side effects on read
             unsafe {
                 for _ in 0..1000 {
-                    let status = status_port.read();
+                    let status: u8 = status_port.read();
                     if status & 0x01 != 0 {
                         break;
                     }
                 }
-                
+
                 *byte = data_port.read();
             }
             bytes_read += 1;
-            
-            if bytes_read >= buffer.len() {
+
+            if bytes_read >= buffer_len {
                 break;
             }
         }
@@ -142,22 +165,23 @@ impl DriverManager {
         let mut status_port = PortReadOnly::new(base_port + 1);
 
         let mut bytes_written = 0;
+        let data_len = data.len();
         for byte in data.iter() {
             // Safety: Writing to I/O ports is safe when the port address is valid
             // and we only write to data ports that accept output
             unsafe {
                 for _ in 0..1000 {
-                    let status = status_port.read();
+                    let status: u8 = status_port.read();
                     if status & 0x02 != 0 {
                         break;
                     }
                 }
-                
+
                 data_port.write(*byte);
             }
             bytes_written += 1;
-            
-            if bytes_written >= data.len() {
+
+            if bytes_written >= data_len {
                 break;
             }
         }
@@ -197,7 +221,11 @@ pub fn init() {
 
 /// Register device
 pub fn register_device(name: &str, device_type: DeviceType) -> Result<u64, DriverError> {
-    DRIVER_MANAGER.lock().as_mut().unwrap().register_device(name, device_type)
+    DRIVER_MANAGER
+        .lock()
+        .as_mut()
+        .unwrap()
+        .register_device(name, device_type)
 }
 
 /// Find device
@@ -207,12 +235,20 @@ pub fn find_device(id: u64) -> Result<Device, DriverError> {
 
 /// Read from device
 pub fn read_device(id: u64, buffer: &mut [u8]) -> Result<usize, DriverError> {
-    DRIVER_MANAGER.lock().as_ref().unwrap().read_device(id, buffer)
+    DRIVER_MANAGER
+        .lock()
+        .as_ref()
+        .unwrap()
+        .read_device(id, buffer)
 }
 
 /// Write to device
 pub fn write_device(id: u64, data: &[u8]) -> Result<usize, DriverError> {
-    DRIVER_MANAGER.lock().as_mut().unwrap().write_device(id, data)
+    DRIVER_MANAGER
+        .lock()
+        .as_mut()
+        .unwrap()
+        .write_device(id, data)
 }
 
 #[cfg(test)]
@@ -277,5 +313,26 @@ mod tests {
         assert_eq!(DeviceType::Block, DeviceType::Block);
         assert_eq!(DeviceType::Char, DeviceType::Char);
         assert_eq!(DeviceType::Net, DeviceType::Net);
+    }
+
+    #[test]
+    fn test_manager_new() {
+        let mgr = DriverManager::new();
+        assert_eq!(mgr.device_count, 0);
+    }
+
+    #[test]
+    fn test_default_for_device() {
+        let dev = Device::default();
+        assert_eq!(dev.id, 0);
+        assert_eq!(dev.device_type, DeviceType::Block);
+    }
+
+    #[test]
+    fn test_write_inactive_device() {
+        let mut mgr = DriverManager::new();
+        let id = mgr.register_device("sde", DeviceType::Char).unwrap();
+        let data = [1u8, 2, 3];
+        assert!(mgr.write_device(id, &data).is_err());
     }
 }
