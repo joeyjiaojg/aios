@@ -62,6 +62,12 @@ jobs:
 
           echo "Processing Issue #$ISSUE_NUMBER"
 
+          # Only proceed if we have a valid issue number
+          if [ -z "$ISSUE_NUMBER" ]; then
+            echo "No valid issue number, skipping"
+            exit 0
+          fi
+
           # Get issue details
           ISSUE_TITLE=$(gh issue view $ISSUE_NUMBER --json title --jq '.title')
           ISSUE_BODY=$(gh issue view $ISSUE_NUMBER --json body --jq '.body')
