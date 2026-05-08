@@ -25,6 +25,8 @@ pub mod serial;
 
 pub mod allocator;
 pub mod ata;
+pub mod driver;
+pub mod e1000;
 pub mod ext2;
 pub mod gdt;
 pub mod interrupts;
