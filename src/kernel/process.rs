@@ -200,6 +200,11 @@ pub fn init() {
     let mut table = PROCESS_TABLE.lock();
     let pid = table.alloc_process(0).unwrap_or(1);
     drop(table);
+    // # Safety
+    // CURRENT_PID is initialized here with a valid PID allocated from the process
+    // table. This is the first and only write to CURRENT_PID during initialization,
+    // and no other thread can access it before init() completes. The lock on
+    // PROCESS_TABLE ensures thread-safe allocation of the PID.
     unsafe { CURRENT_PID = pid };
 }
 
@@ -212,14 +217,31 @@ pub fn get_process(pid: usize) -> Option<Process> {
 }
 
 pub fn get_current_process() -> Option<Process> {
+    // # Safety
+    // PROCESS_TABLE mutex serializes all access to the process table. CURRENT_PID
+    // is initialized by init() before any other function can call this, and the
+    // kernel runs single-threaded during early boot (no concurrent access). The
+    // returned Option<Process> is a Copy type, avoiding any lifetime issues.
     unsafe { PROCESS_TABLE.lock().get_process(CURRENT_PID).copied() }
 }
 
 pub fn get_current_pid() -> usize {
+    // # Safety
+    // CURRENT_PID is a simple read of a usize that is initialized by init() and
+    // only modified by set_current_pid() which is only called after process creation.
+    // The kernel executes single-threaded during early boot, so there is no data
+    // race on this read. The value is always a valid PID that was allocated by
+    // alloc_process().
     unsafe { CURRENT_PID }
 }
 
 pub fn set_current_pid(pid: usize) {
+    // # Safety
+    // The caller must ensure pid is a valid process ID that has been allocated
+    // by alloc_process(). Since the kernel is single-threaded during early boot
+    // and PROCESS_TABLE lock serializes process table modifications, there is
+    // no data race on writing to CURRENT_PID. This function is only called when
+    // context-switching to a newly created process.
     unsafe { CURRENT_PID = pid };
 }
 

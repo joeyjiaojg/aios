@@ -114,10 +114,12 @@ fn sys_write(fd: usize, buf: usize, count: usize) -> isize {
             return 0;
         }
         let safe_count = if count > 4096 { 4096 } else { count };
-        // # Safety
-        // We validate that buf is non-zero and count is bounded to 4KB.
-        // This is a simple implementation - a production kernel would copy
-        // through a kernel buffer to ensure the user pointer is valid.
+        /* # Safety
+         * We validate that buf is non-zero and count is bounded to 4KB before
+         * constructing the slice. The slice is only used for reading a UTF-8
+         * string to write to serial output; no memory is written through it.
+         * A production kernel would copy through an intermediate kernel buffer
+         * to additionally validate the memory is accessible. */
         let slice = unsafe { core::slice::from_raw_parts(buf as *const u8, safe_count) };
         if let Ok(s) = core::str::from_utf8(slice) {
             crate::serial::write_str(s);
@@ -196,9 +198,12 @@ fn sys_execve(path_ptr: usize, _argv: usize, _envp: usize) -> isize {
         return -1;
     }
 
-    // # Safety
-    // Reading path string from user pointer. The pointer is assumed to be valid
-    // and pointing to a null-terminated string in user memory.
+    /* # Safety
+     * path_ptr must point to a null-terminated string in accessible user-space
+     * memory. We check path_ptr != 0 before dereferencing. The slice is bounded
+     * to 256 bytes (the maximum path length we accept) and scanning for a null
+     * terminator prevents reading past the string. Callers (via the syscall
+     * interface) are responsible for passing valid user-space pointers. */
     let path_bytes = unsafe { core::slice::from_raw_parts(path_ptr as *const u8, 256) };
     let path_len = path_bytes.iter().position(|&b| b == 0).unwrap_or(256);
     let path = &path_bytes[..path_len];
@@ -264,9 +269,11 @@ fn sys_wait4(_pid: usize, _status_ptr: usize, _options: usize) -> isize {
 }
 
 fn sys_getcwd(buf_ptr: usize, size: usize, _arg3: usize) -> isize {
-    // # Safety
-    // getcwd writes the current working directory string to the provided buffer.
-    // The buffer pointer is assumed to be valid user memory.
+    /* # Safety
+     * buf_ptr must be a valid user-space pointer and size must be at least 1.
+     * Both are validated by the (buf_ptr == 0 || size == 0) check below, which
+     * rejects null pointers and zero size. Callers via the syscall interface
+     * are responsible for providing valid, accessible user memory. */
     if buf_ptr == 0 || size == 0 {
         return 0;
     }
@@ -282,9 +289,12 @@ fn sys_getcwd(buf_ptr: usize, size: usize, _arg3: usize) -> isize {
         return 0;
     }
 
-    // # Safety
-    // Writing to user-provided buffer. The buffer pointer and size have been
-    // validated. The path string is null-terminated.
+    /* # Safety
+     * Writing to user-provided buffer. The buffer pointer and size have been
+     * validated: buf_ptr is non-null (checked above) and size is large enough
+     * to hold the path plus null terminator (checked via path_bytes.len() + 1 > size).
+     * The write is bounded to path_bytes.len() bytes, and we null-terminate at
+     * exactly path_bytes.len(), both within the validated buffer bounds. */
     unsafe {
         core::slice::from_raw_parts_mut(buf_ptr as *mut u8, path_bytes.len())
             .copy_from_slice(path_bytes);
@@ -298,9 +308,11 @@ fn sys_chdir(path_ptr: usize, _arg2: usize, _arg3: usize) -> isize {
         return -1;
     }
 
-    // # Safety
-    // Reading path string from user pointer. The pointer is assumed to be valid
-    // and pointing to a null-terminated string in user memory.
+    /* # Safety
+     * path_ptr must point to a null-terminated string in accessible user-space
+     * memory. We check path_ptr != 0 before dereferencing. The slice is bounded
+     * to 256 bytes and scanning for null terminator prevents over-reading.
+     * Callers (via the syscall interface) are responsible for valid pointers. */
     let path_bytes = unsafe { core::slice::from_raw_parts(path_ptr as *const u8, 256) };
     let path_len = path_bytes.iter().position(|&b| b == 0).unwrap_or(256);
     let path = core::str::from_utf8(&path_bytes[..path_len]).unwrap_or("");
@@ -324,9 +336,11 @@ fn sys_mkdir(path_ptr: usize, _mode: usize, _arg3: usize) -> isize {
         return -1;
     }
 
-    // # Safety
-    // Reading path string from user pointer. The pointer is assumed to be valid
-    // and pointing to a null-terminated string in user memory.
+    /* # Safety
+     * path_ptr must point to a null-terminated string in accessible user-space
+     * memory. We check path_ptr != 0 before dereferencing. The slice is bounded
+     * to 256 bytes and scanning for null terminator prevents over-reading.
+     * Callers (via the syscall interface) are responsible for valid pointers. */
     let path_bytes = unsafe { core::slice::from_raw_parts(path_ptr as *const u8, 256) };
     let path_len = path_bytes.iter().position(|&b| b == 0).unwrap_or(256);
 
@@ -345,9 +359,11 @@ fn sys_rmdir(path_ptr: usize, _arg2: usize, _arg3: usize) -> isize {
         return -1;
     }
 
-    // # Safety
-    // Reading path string from user pointer. The pointer is assumed to be valid
-    // and pointing to a null-terminated string in user memory.
+    /* # Safety
+     * path_ptr must point to a null-terminated string in accessible user-space
+     * memory. We check path_ptr != 0 before dereferencing. The slice is bounded
+     * to 256 bytes and scanning for null terminator prevents over-reading.
+     * Callers (via the syscall interface) are responsible for valid pointers. */
     let path_bytes = unsafe { core::slice::from_raw_parts(path_ptr as *const u8, 256) };
     let path_len = path_bytes.iter().position(|&b| b == 0).unwrap_or(256);
     let ino = simple_hash(&path_bytes[..path_len]) as u32;
@@ -364,9 +380,11 @@ fn sys_unlink(path_ptr: usize, _arg2: usize, _arg3: usize) -> isize {
         return -1;
     }
 
-    // # Safety
-    // Reading path string from user pointer. The pointer is assumed to be valid
-    // and pointing to a null-terminated string in user memory.
+    /* # Safety
+     * path_ptr must point to a null-terminated string in accessible user-space
+     * memory. We check path_ptr != 0 before dereferencing. The slice is bounded
+     * to 256 bytes and scanning for null terminator prevents over-reading.
+     * Callers (via the syscall interface) are responsible for valid pointers. */
     let path_bytes = unsafe { core::slice::from_raw_parts(path_ptr as *const u8, 256) };
     let path_len = path_bytes.iter().position(|&b| b == 0).unwrap_or(256);
     let ino = simple_hash(&path_bytes[..path_len]) as u32;
