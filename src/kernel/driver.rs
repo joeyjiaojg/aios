@@ -6,6 +6,7 @@
 
 
 use spin::Mutex;
+use x86_64::instructions::port::{Port, PortReadOnly};
 
 /// Maximum number of devices
 const MAX_DEVICES: usize = 16;
@@ -94,24 +95,74 @@ impl DriverManager {
         Err(DriverError::DeviceNotFound)
     }
 
-    /// Read from device (stub)
-    pub fn read_device(&self, id: u64, _buffer: &mut [u8]) -> Result<usize, DriverError> {
+    /// Read from device
+    pub fn read_device(&self, id: u64, buffer: &mut [u8]) -> Result<usize, DriverError> {
         let dev = self.find_device(id)?;
         if dev.status != DeviceStatus::Active {
             return Err(DriverError::DeviceNotActive);
         }
-        // In real implementation, would read from hardware
-        Ok(0)
+
+        let base_port = 0x300 + (id as u16 * 0x10);
+        let mut data_port = Port::<u8>::new(base_port);
+        let mut status_port = PortReadOnly::new(base_port + 1);
+
+        let mut bytes_read = 0;
+        for byte in buffer.iter_mut() {
+            // Safety: Reading from I/O ports is safe when the port address is valid
+            // and we only read from ports that don't have side effects on read
+            unsafe {
+                for _ in 0..1000 {
+                    let status = status_port.read();
+                    if status & 0x01 != 0 {
+                        break;
+                    }
+                }
+                
+                *byte = data_port.read();
+            }
+            bytes_read += 1;
+            
+            if bytes_read >= buffer.len() {
+                break;
+            }
+        }
+
+        Ok(bytes_read)
     }
 
-    /// Write to device (stub)
-    pub fn write_device(&mut self, id: u64, _data: &[u8]) -> Result<usize, DriverError> {
+    /// Write to device
+    pub fn write_device(&mut self, id: u64, data: &[u8]) -> Result<usize, DriverError> {
         let dev = self.find_device(id)?;
         if dev.status != DeviceStatus::Active {
             return Err(DriverError::DeviceNotActive);
         }
-        // In real implementation, would write to hardware
-        Ok(0)
+
+        let base_port = 0x300 + (id as u16 * 0x10);
+        let mut data_port = Port::<u8>::new(base_port);
+        let mut status_port = PortReadOnly::new(base_port + 1);
+
+        let mut bytes_written = 0;
+        for byte in data.iter() {
+            // Safety: Writing to I/O ports is safe when the port address is valid
+            // and we only write to data ports that accept output
+            unsafe {
+                for _ in 0..1000 {
+                    let status = status_port.read();
+                    if status & 0x02 != 0 {
+                        break;
+                    }
+                }
+                
+                data_port.write(*byte);
+            }
+            bytes_written += 1;
+            
+            if bytes_written >= data.len() {
+                break;
+            }
+        }
+
+        Ok(bytes_written)
     }
 
     /// Activate device
