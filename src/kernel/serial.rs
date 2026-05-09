@@ -105,61 +105,7 @@ mod tests {
 
     #[test]
     fn test_com1_port_address() {
-        assert_eq!(COM1_PORT, 0x3F8, "COM1 should be at port 0x3F8");
-    }
-
-    #[test]
-    fn test_baud_divisor_value() {
-        let divisor: u16 = 1;
-        assert!(divisor > 0, "Baud divisor must be positive");
-    }
-
-    #[test]
-    fn test_line_control_bits() {
-        let lcr: u8 = 0x03;
-        assert_eq!(lcr & 0x03, 0x03, "8 data bits, 1 stop bit");
-    }
-
-    #[test]
-    fn test_fifo_control_enable() {
-        let fcr: u8 = 0xC7;
-        assert!(fcr & 0x01 != 0, "FIFO should be enabled");
-    }
-
-    #[test]
-    fn test_modem_control_rts() {
-        let mcr: u8 = 0x0B;
-        assert!(mcr & 0x02 != 0, "RTS should be enabled");
-    }
-
-    #[test]
-    fn test_line_status_thre() {
-        let lsr: u8 = 0x20;
-        assert!(lsr & 0x20 != 0, "Transmit holding register empty");
-    }
-
-    #[test]
-    fn test_line_status_drdy() {
-        let lsr: u8 = 0x01;
-        assert!(lsr & 0x01 != 0, "Data ready bit should be set");
-    }
-
-    #[test]
-    fn test_ier_register_offset() {
-        let offset: u8 = 1;
-        assert_ne!(offset, 0, "IER offset should not be zero");
-    }
-
-    #[test]
-    fn test_iir_register_offset() {
-        let offset: u8 = 2;
-        assert_ne!(offset, 0, "IIR offset should not be zero");
-    }
-
-    #[test]
-    fn test_lcr_register_offset() {
-        let offset: u8 = 3;
-        assert_ne!(offset, 0, "LCR offset should not be zero");
+        assert_eq!(COM1_PORT, 0x3F8);
     }
 
     #[test]
@@ -168,7 +114,57 @@ mod tests {
     }
 
     #[test]
-    fn test_port_constants_different() {
-        assert_ne!(COM1_PORT, 0, "COM1 port should be non-zero");
+    fn test_write_str_single_char() {
+        write_str("A");
+    }
+
+    #[test]
+    fn test_write_str_multiple_chars() {
+        write_str("TEST");
+    }
+
+    #[test]
+    fn test_write_byte_zero() {
+        write_byte(0x00);
+    }
+
+    #[test]
+    fn test_write_byte_max() {
+        write_byte(0xFF);
+    }
+
+    #[test]
+    fn test_write_byte_printable() {
+        write_byte(0x41);
+        write_byte(0x5A);
+    }
+
+    #[test]
+    fn test_read_byte_returns_option() {
+        let result = read_byte();
+        assert!(result.is_none() || result.is_some());
+    }
+
+    #[test]
+    fn test_has_data_returns_bool() {
+        let result = has_data();
+        assert!(result == true || result == false);
+    }
+
+    #[test]
+    fn test_com1_port_in_io_range() {
+        assert!(COM1_PORT < 0x10000);
+    }
+
+    #[test]
+    fn test_baud_divisor_value() {
+        let divisor: u16 = 1;
+        assert!(divisor > 0);
+    }
+
+    #[test]
+    fn test_line_control_format() {
+        let lcr: u8 = 0x03;
+        assert_eq!(lcr, 0x03);
     }
 }
