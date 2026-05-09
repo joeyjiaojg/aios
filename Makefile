@@ -11,42 +11,59 @@ QEMU := qemu-system-x86_64
 RUSTUP := ${HOME}/.cargo/bin/rustup
 CARGO := ${HOME}/.cargo/bin/cargo
 
-.PHONY: all build run clean test test-qemu test-unit test-integration fmt check clippy
+.PHONY: all build clean test test-qemu test-unit test-integration fmt check clippy deps iso run run-debug
 
-all: build
+all: deps build
 
-build: $(KERNEL)
+deps:
+	@echo "Checking dependencies..."
+	@which qemu-system-x86_64 > /dev/null 2>&1 || (echo "ERROR: qemu-system-x86_64 not found. Install with: sudo apt-get install qemu-system-x86" && exit 1)
+	@which xorriso > /dev/null 2>&1 || (echo "ERROR: xorriso not found. Install with: sudo apt-get install xorriso" && exit 1)
+	@which grub-mkrescue > /dev/null 2>&1 || (echo "ERROR: grub-mkrescue not found. Install with: sudo apt-get install grub-common" && exit 1)
+	@which mformat > /dev/null 2>&1 || (echo "ERROR: mformat not found. Install with: sudo apt-get install mtools" && exit 1)
+	@echo "All dependencies satisfied."
 
-$(KERNEL): src/**/*.rs Cargo.toml
+build: deps $(KERNEL)
+
+$(KERNEL): src/**/*.rs src/**/**/*.S
 	mkdir -p $(BUILD)
 	$(RUSTUP) run nightly $(CARGO) build --release --target $(TARGET)
-	cp target/$(TARGET)/release/libaios_kernel.a $(KERNEL)
 
-run: build
+iso: deps build
+	mkdir -p $(BUILD)/iso/boot/grub
+	cp $(KERNEL) $(BUILD)/iso/boot/aios.kernel
+	cp $(PROJECT_ROOT)/iso/boot/grub/grub.cfg $(BUILD)/iso/boot/grub/
+	GRUB_PLATFORM=i386-pc grub-mkrescue -o $(ISO) $(BUILD)/iso/ 2>&1 || (echo "ERROR: grub-mkrescue failed. Try installing grub-pc-bin: sudo apt-get install grub-pc-bin" && exit 1)
+
+run: deps iso
 	$(QEMU) \
+		-nographic \
 		-cdrom $(ISO) \
 		-boot d \
-		-serial stdio \
+		-serial file:$(BUILD)/serial.log \
 		-no-reboot \
 		-m 256M
 
-run-debug: build
+run-uefi: deps iso
 	$(QEMU) \
+		-nographic \
+		-drive if=pflash,format=raw,file=/usr/share/ovmf/OVMF.fd \
 		-cdrom $(ISO) \
 		-boot d \
-		-serial stdio \
+		-serial file:$(BUILD)/serial.log \
+		-no-reboot \
+		-m 256M
+
+run-debug: deps iso
+	$(QEMU) \
+		-nographic \
+		-cdrom $(ISO) \
+		-boot d \
+		-serial file:$(BUILD)/serial.log \
 		-no-reboot \
 		-m 256M \
 		-d int,cpu_reset \
 		-D $(BUILD)/qemu.log
-
-iso: build
-	mkdir -p $(BUILD)/iso/boot/grub
-	cp $(KERNEL) $(BUILD)/iso/boot/aios.kernel
-	cp $(PROJECT_ROOT)/iso/boot/grub/grub.cfg $(BUILD)/iso/boot/grub/
-	grub-mkrescue -o $(ISO) $(BUILD)/iso/
-
-test: test-unit
 
 test-unit:
 	cd src/lib/boot_info && $(RUSTUP) run nightly $(CARGO) test --lib
