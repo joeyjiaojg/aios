@@ -19,14 +19,14 @@ pub const PIC_2_OFFSET: u8 = PIC_1_OFFSET + 8;
 static PICS: Mutex<Option<ChainedPics>> = Mutex::new(None);
 
 // # Safety
-// IDT is protected by a Mutex and initialized once during boot.
-// Only accessed through init() and init_idt() functions.
-static IDT: Mutex<Option<InterruptDescriptorTable>> = Mutex::new(None);
+// IDT is initialized once during boot. load() must be called after all handlers are registered.
+// Used only through init() function which is called once.
+static mut IDT_FOR_LOAD: Option<InterruptDescriptorTable> = None;
 
 // # Safety
-// IDT_SINGLETON provides exclusive access to IDT for loading.
-// Initialized once during boot, used only for loading.
-static mut IDT_SINGLETON: Option<InterruptDescriptorTable> = None;
+// IDT is protected by a Mutex and initialized once during boot.
+// Only accessed through init_idt() function for registering handlers.
+static IDT: Mutex<Option<InterruptDescriptorTable>> = Mutex::new(None);
 
 pub static TIMER_TICK: AtomicBool = AtomicBool::new(false);
 
@@ -40,10 +40,10 @@ fn init_idt_once() {
         idt.breakpoint.set_handler_fn(breakpoint_handler);
         idt.double_fault.set_handler_fn(double_fault_handler);
         // # Safety
-        // IDT_SINGLETON provides exclusive access for loading.
-        // Safe because this is called once during boot.
+        // IDT_FOR_LOAD is used only in init() which is called once after initialization.
+        // This is safe because we immediately store the IDT and it stays valid.
         unsafe {
-            IDT_SINGLETON = Some(core::ptr::read(&idt));
+            IDT_FOR_LOAD = Some(core::ptr::read(&idt));
         }
         *idt_guard = Some(idt);
     }
@@ -55,10 +55,10 @@ pub fn init() {
     configure_pit_timer();
 
     // # Safety
-    // Loading IDT is safe - IDT is initialized above and contains valid handlers.
-    // This enables CPU exception handling.
+    // Loading IDT is safe - IDT_FOR_LOAD is set in init_idt_once() above.
+    // This enables CPU exception handling. Called once during boot.
     unsafe {
-        IDT_SINGLETON.as_ref().unwrap().load();
+        IDT_FOR_LOAD.as_ref().unwrap().load();
     }
 }
 
