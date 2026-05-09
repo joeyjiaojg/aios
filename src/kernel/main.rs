@@ -56,10 +56,18 @@ pub extern "C" fn _start(boot_info: &'static BootInfo) -> ! {
 
     crate::process::init();
     crate::syscalls::init();
+
+    crate::interrupts::init();
+    crate::interrupts::init_idt();
+    crate::interrupts::enable_interrupts();
+    crate::task::init_scheduler();
+
     crate::shell::run_shell();
 
     loop {
-        hlt();
+        crate::task::run_scheduler();
+        crate::interrupts::enable_interrupts();
+        unsafe { core::arch::asm!("hlt") }
     }
 }
 

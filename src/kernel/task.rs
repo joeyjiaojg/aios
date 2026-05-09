@@ -184,6 +184,30 @@ pub fn switch_to(task: &Task) {
     core::hint::black_box(task);
 }
 
+static mut TASK_MANAGER: Option<TaskManager> = None;
+
+pub fn init_scheduler() {
+    // # Safety
+    // Task manager is initialized once during kernel boot.
+    // Single-core kernel - no data races during initialization.
+    unsafe {
+        TASK_MANAGER = Some(TaskManager::new());
+    }
+}
+
+pub fn run_scheduler() {
+    // # Safety
+    // Accessing TASK_MANAGER is safe during scheduler execution.
+    // The timer tick check and yield operation are atomic w.r.t. the scheduler.
+    unsafe {
+        if let Some(ref mut tm) = TASK_MANAGER {
+            if crate::interrupts::is_timer_tick() {
+                tm.yield_current();
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -326,5 +350,25 @@ mod tests {
         let mut tm = TaskManager::new();
         tm.set_current_task(MAX_TASKS + 1);
         assert!(tm.get_current_task().is_none());
+    }
+
+    #[test]
+    fn test_scheduler_init() {
+        init_scheduler();
+    }
+
+    #[test]
+    fn test_run_scheduler_no_panic() {
+        run_scheduler();
+    }
+
+    #[test]
+    fn test_task_manager_preserved() {
+        init_scheduler();
+        run_scheduler();
+        // Verify task manager still accessible after scheduler runs
+        unsafe {
+            assert!(TASK_MANAGER.is_some());
+        }
     }
 }
