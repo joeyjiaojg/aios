@@ -87,6 +87,7 @@ AIOS is an x86_64 operating system kernel written in Rust, targeting `no_std` en
 | #3 | #3 | Enhanced Interrupts |
 | #5 | #7 | Device Driver Framework |
 | #6 | #6 | VFS Framework v4 |
+| #40 | #53 | Timer Interrupt and Scheduler |
 | #43 | #48 | GRUB/Multiboot Configuration |
 
 ## Emergency Debugging
