@@ -46,6 +46,25 @@ pub fn write_str(s: &str) {
     }
 }
 
+pub fn read_byte() -> Option<u8> {
+    // # Safety
+    // Reading from I/O port 0x3F8 (COM1) is safe - this is a standard hardware port
+    // Line Status Register bit 0 indicates data ready
+    unsafe {
+        if inb(COM1_PORT + 5) & 0x01 != 0 {
+            Some(inb(COM1_PORT))
+        } else {
+            None
+        }
+    }
+}
+
+pub fn has_data() -> bool {
+    // # Safety
+    // Reading from I/O port is safe for standard x86 ports
+    unsafe { inb(COM1_PORT + 5) & 0x01 != 0 }
+}
+
 /// Read a byte from an I/O port
 /// # Safety
 /// Reading from I/O ports is safe for standard x86 ports.

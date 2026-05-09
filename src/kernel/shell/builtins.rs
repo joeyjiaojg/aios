@@ -290,6 +290,39 @@ pub fn exec_cmd(cmd: &str, _args: &[&str]) -> Result<(), &'static str> {
     Ok(())
 }
 
+pub fn execute_builtin(cmd: &str, args: &[&str]) -> bool {
+    let args_slice = &args[1..];
+    match cmd {
+        "cd" => cd(args_slice).is_ok(),
+        "pwd" => pwd().is_ok(),
+        "exit" => {
+            let _ = exit_cmd(args_slice);
+            crate::shell::stop_shell();
+            true
+        }
+        "echo" => echo(args_slice).is_ok(),
+        "ls" => ls(args_slice).is_ok(),
+        "mkdir" => mkdir(args_slice).is_ok(),
+        "rm" => rm(args_slice).is_ok(),
+        "cat" => cat(args_slice).is_ok(),
+        "set" => set_var(args_slice).is_ok(),
+        "unset" => unset_var(args_slice).is_ok(),
+        "help" => help().is_ok(),
+        "history" => {
+            let _ = crate::shell::history::show_history();
+            true
+        }
+        "jobs" => {
+            let _ = crate::shell::job_control::list_jobs();
+            true
+        }
+        "fg" => crate::shell::job_control::fg(args_slice).is_ok(),
+        "bg" => crate::shell::job_control::bg(args_slice).is_ok(),
+        "exec" => exec_cmd(cmd, args_slice).is_ok(),
+        _ => false,
+    }
+}
+
 fn simple_hash_str(s: &str) -> usize {
     let mut hash: usize = 0;
     let bytes = s.as_bytes();

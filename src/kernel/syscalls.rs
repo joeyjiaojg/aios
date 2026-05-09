@@ -114,12 +114,12 @@ fn sys_write(fd: usize, buf: usize, count: usize) -> isize {
             return 0;
         }
         let safe_count = if count > 4096 { 4096 } else { count };
-        /* # Safety
-         * We validate that buf is non-zero and count is bounded to 4KB before
-         * constructing the slice. The slice is only used for reading a UTF-8
-         * string to write to serial output; no memory is written through it.
-         * A production kernel would copy through an intermediate kernel buffer
-         * to additionally validate the memory is accessible. */
+        // # Safety
+        // We validate that buf is non-zero and count is bounded to 4KB before
+        // constructing the slice. The slice is only used for reading a UTF-8
+        // string to write to serial output; no memory is written through it.
+        // A production kernel would copy through an intermediate kernel buffer
+        // to additionally validate the memory is accessible.
         let slice = unsafe { core::slice::from_raw_parts(buf as *const u8, safe_count) };
         if let Ok(s) = core::str::from_utf8(slice) {
             crate::serial::write_str(s);
@@ -169,6 +169,15 @@ fn sys_fork(_arg1: usize, _arg2: usize, _arg3: usize) -> isize {
     // the parent process state. This is thread-safe as it only accesses the
     // process table through a Mutex lock. The new process gets its own PID
     // and inherits the parent's CWD.
+    //
+    // Current implementation notes:
+    // - This is a simplified fork for the AIOS kernel which runs shell as a
+    //   built-in kernel task (not a separate userspace process).
+    // - True fork requires: (1) process address space duplication, (2) context
+    //   switch to child, (3) different return values for parent/child.
+    // - This implementation creates a new process entry in the process table
+    //   and returns the child's PID. A full implementation would require a
+    //   scheduler and userspace memory management.
     let parent_pid = crate::process::get_current_pid();
     let child_pid = match crate::process::alloc_process(parent_pid) {
         Some(pid) => pid,
@@ -186,24 +195,44 @@ fn sys_fork(_arg1: usize, _arg2: usize, _arg3: usize) -> isize {
         }
     }
 
-    // Store fork result: parent gets child's PID, child gets 0
-    // Since we can't actually context-switch here, we store the result
-    // and use a wrapper to retrieve it
-    FORK_RESULT.store(child_pid, core::sync::atomic::Ordering::SeqCst);
+    // Return child's PID to parent
+    // Note: In a full implementation, child would get 0 via context switch
     child_pid as isize
 }
 
+pub fn fork_parent_return(child_pid: usize) -> isize {
+    child_pid as isize
+}
+
+pub fn fork_child_return() -> isize {
+    0
+}
+
 fn sys_execve(path_ptr: usize, _argv: usize, _envp: usize) -> isize {
+    // # Safety
+    // execve() loads an ELF program from ramdisk and prepares to execute it.
+    // This implementation:
+    //   1. Validates the path pointer and reads the path string
+    //   2. Looks up the file in ramdisk (using a simple hash for demo)
+    //   3. Reads and validates ELF header
+    //   4. Extracts the entry point address
+    //
+    // Current implementation notes:
+    // - This is a simplified execve for the AIOS kernel running in kernel context
+    // - True execve requires: (1) address space setup, (2) stack setup with args,
+    //   (3) context switch to new program, (4) TLS setup if needed
+    // - This implementation loads the ELF, extracts entry point, and stores it
+    // - A full implementation would need a userspace memory manager
     if path_ptr == 0 {
         return -1;
     }
 
-    /* # Safety
-     * path_ptr must point to a null-terminated string in accessible user-space
-     * memory. We check path_ptr != 0 before dereferencing. The slice is bounded
-     * to 256 bytes (the maximum path length we accept) and scanning for a null
-     * terminator prevents reading past the string. Callers (via the syscall
-     * interface) are responsible for passing valid user-space pointers. */
+    // # Safety
+    // path_ptr must point to a null-terminated string in accessible user-space
+    // memory. We check path_ptr != 0 before dereferencing. The slice is bounded
+    // to 256 bytes (the maximum path length we accept) and scanning for a null
+    // terminator prevents reading past the string. Callers (via the syscall
+    // interface) are responsible for passing valid user-space pointers.
     let path_bytes = unsafe { core::slice::from_raw_parts(path_ptr as *const u8, 256) };
     let path_len = path_bytes.iter().position(|&b| b == 0).unwrap_or(256);
     let path = &path_bytes[..path_len];
@@ -269,11 +298,11 @@ fn sys_wait4(_pid: usize, _status_ptr: usize, _options: usize) -> isize {
 }
 
 fn sys_getcwd(buf_ptr: usize, size: usize, _arg3: usize) -> isize {
-    /* # Safety
-     * buf_ptr must be a valid user-space pointer and size must be at least 1.
-     * Both are validated by the (buf_ptr == 0 || size == 0) check below, which
-     * rejects null pointers and zero size. Callers via the syscall interface
-     * are responsible for providing valid, accessible user memory. */
+    // # Safety
+    // buf_ptr must be a valid user-space pointer and size must be at least 1.
+    // Both are validated by the (buf_ptr == 0 || size == 0) check below, which
+    // rejects null pointers and zero size. Callers via the syscall interface
+    // are responsible for providing valid, accessible user memory.
     if buf_ptr == 0 || size == 0 {
         return 0;
     }
@@ -289,12 +318,12 @@ fn sys_getcwd(buf_ptr: usize, size: usize, _arg3: usize) -> isize {
         return 0;
     }
 
-    /* # Safety
-     * Writing to user-provided buffer. The buffer pointer and size have been
-     * validated: buf_ptr is non-null (checked above) and size is large enough
-     * to hold the path plus null terminator (checked via path_bytes.len() + 1 > size).
-     * The write is bounded to path_bytes.len() bytes, and we null-terminate at
-     * exactly path_bytes.len(), both within the validated buffer bounds. */
+    // # Safety
+    // Writing to user-provided buffer. The buffer pointer and size have been
+    // validated: buf_ptr is non-null (checked above) and size is large enough
+    // to hold the path plus null terminator (checked via path_bytes.len() + 1 > size).
+    // The write is bounded to path_bytes.len() bytes, and we null-terminate at
+    // exactly path_bytes.len(), both within the validated buffer bounds.
     unsafe {
         core::slice::from_raw_parts_mut(buf_ptr as *mut u8, path_bytes.len())
             .copy_from_slice(path_bytes);
@@ -308,11 +337,11 @@ fn sys_chdir(path_ptr: usize, _arg2: usize, _arg3: usize) -> isize {
         return -1;
     }
 
-    /* # Safety
-     * path_ptr must point to a null-terminated string in accessible user-space
-     * memory. We check path_ptr != 0 before dereferencing. The slice is bounded
-     * to 256 bytes and scanning for null terminator prevents over-reading.
-     * Callers (via the syscall interface) are responsible for valid pointers. */
+    // # Safety
+    // path_ptr must point to a null-terminated string in accessible user-space
+    // memory. We check path_ptr != 0 before dereferencing. The slice is bounded
+    // to 256 bytes and scanning for null terminator prevents over-reading.
+    // Callers (via the syscall interface) are responsible for valid pointers.
     let path_bytes = unsafe { core::slice::from_raw_parts(path_ptr as *const u8, 256) };
     let path_len = path_bytes.iter().position(|&b| b == 0).unwrap_or(256);
     let path = core::str::from_utf8(&path_bytes[..path_len]).unwrap_or("");
@@ -336,18 +365,17 @@ fn sys_mkdir(path_ptr: usize, _mode: usize, _arg3: usize) -> isize {
         return -1;
     }
 
-    /* # Safety
-     * path_ptr must point to a null-terminated string in accessible user-space
-     * memory. We check path_ptr != 0 before dereferencing. The slice is bounded
-     * to 256 bytes and scanning for null terminator prevents over-reading.
-     * Callers (via the syscall interface) are responsible for valid pointers. */
+    // # Safety
+    // path_ptr must point to a null-terminated string in accessible user-space
+    // memory. We check path_ptr != 0 before dereferencing. The slice is bounded
+    // to 256 bytes and scanning for null terminator prevents over-reading.
+    // Callers (via the syscall interface) are responsible for valid pointers.
     let path_bytes = unsafe { core::slice::from_raw_parts(path_ptr as *const u8, 256) };
     let path_len = path_bytes.iter().position(|&b| b == 0).unwrap_or(256);
 
     let ino = simple_hash(&path_bytes[..path_len]) as u32;
     let mut ramdisk = crate::ramdisk::RAMDISK.lock();
-    let result = ramdisk.write(ino, 0, b"[DIR]");
-    if result.is_some() {
+    if ramdisk.write(ino, 0, b"[DIR]").is_some() {
         0
     } else {
         -1
@@ -359,20 +387,22 @@ fn sys_rmdir(path_ptr: usize, _arg2: usize, _arg3: usize) -> isize {
         return -1;
     }
 
-    /* # Safety
-     * path_ptr must point to a null-terminated string in accessible user-space
-     * memory. We check path_ptr != 0 before dereferencing. The slice is bounded
-     * to 256 bytes and scanning for null terminator prevents over-reading.
-     * Callers (via the syscall interface) are responsible for valid pointers. */
+    // # Safety
+    // path_ptr must point to a null-terminated string in accessible user-space
+    // memory. We check path_ptr != 0 before dereferencing. The slice is bounded
+    // to 256 bytes and scanning for null terminator prevents over-reading.
+    // Callers (via the syscall interface) are responsible for valid pointers.
     let path_bytes = unsafe { core::slice::from_raw_parts(path_ptr as *const u8, 256) };
     let path_len = path_bytes.iter().position(|&b| b == 0).unwrap_or(256);
     let ino = simple_hash(&path_bytes[..path_len]) as u32;
 
     let mut ramdisk = crate::ramdisk::RAMDISK.lock();
-    // Clear the block by writing zeros
     let zero_buf = [0u8; 512];
-    ramdisk.write(ino, 0, &zero_buf);
-    0
+    if ramdisk.write(ino, 0, &zero_buf).is_some() {
+        0
+    } else {
+        -1
+    }
 }
 
 fn sys_unlink(path_ptr: usize, _arg2: usize, _arg3: usize) -> isize {
@@ -380,19 +410,22 @@ fn sys_unlink(path_ptr: usize, _arg2: usize, _arg3: usize) -> isize {
         return -1;
     }
 
-    /* # Safety
-     * path_ptr must point to a null-terminated string in accessible user-space
-     * memory. We check path_ptr != 0 before dereferencing. The slice is bounded
-     * to 256 bytes and scanning for null terminator prevents over-reading.
-     * Callers (via the syscall interface) are responsible for valid pointers. */
+    // # Safety
+    // path_ptr must point to a null-terminated string in accessible user-space
+    // memory. We check path_ptr != 0 before dereferencing. The slice is bounded
+    // to 256 bytes and scanning for null terminator prevents over-reading.
+    // Callers (via the syscall interface) are responsible for valid pointers.
     let path_bytes = unsafe { core::slice::from_raw_parts(path_ptr as *const u8, 256) };
     let path_len = path_bytes.iter().position(|&b| b == 0).unwrap_or(256);
     let ino = simple_hash(&path_bytes[..path_len]) as u32;
 
     let mut ramdisk = crate::ramdisk::RAMDISK.lock();
     let zero_buf = [0u8; 512];
-    ramdisk.write(ino, 0, &zero_buf);
-    0
+    if ramdisk.write(ino, 0, &zero_buf).is_some() {
+        0
+    } else {
+        -1
+    }
 }
 
 fn sys_dup(_fd: usize, _arg2: usize, _arg3: usize) -> isize {

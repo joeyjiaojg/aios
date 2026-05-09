@@ -32,6 +32,69 @@ pub fn stop_shell() {
 
 pub fn run_shell() {
     set_running(true);
+    crate::serial::write_str("AIOS Shell v1.0\r\n");
+    crate::serial::write_str("Type 'help' for available commands.\r\n\r\n");
+
+    let mut input_buf = [0u8; MAX_INPUT_LEN];
+    let mut input_len: usize;
+
+    loop {
+        if !is_running() {
+            break;
+        }
+
+        crate::serial::write_str("aios$ ");
+
+        input_len = 0;
+        loop {
+            if let Some(byte) = crate::serial::read_byte() {
+                match byte {
+                    b'\r' | b'\n' => {
+                        crate::serial::write_str("\r\n");
+                        break;
+                    }
+                    0x7F | 0x08 => {
+                        if input_len > 0 {
+                            input_len -= 1;
+                            crate::serial::write_str("\x08 \x08");
+                        }
+                    }
+                    b if (0x20..0x7F).contains(&b) && input_len < MAX_INPUT_LEN - 1 => {
+                        input_buf[input_len] = b;
+                        input_len += 1;
+                        crate::serial::write_byte(b);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        if input_len == 0 {
+            continue;
+        }
+
+        input_buf[input_len] = 0;
+        let input_str = core::str::from_utf8(&input_buf[..input_len]).unwrap_or("");
+
+        if input_str.trim().is_empty() {
+            continue;
+        }
+
+        history::add_entry(input_str);
+
+        let (args, arg_count) = parser::split_command_args(input_str);
+        if arg_count == 0 {
+            continue;
+        }
+
+        let cmd = args[0];
+        let result = builtins::execute_builtin(cmd, &args[..arg_count]);
+        if !result {
+            crate::serial::write_str("Command not found: ");
+            crate::serial::write_str(cmd);
+            crate::serial::write_str("\r\n");
+        }
+    }
 }
 
 pub fn get_current_dir_str() -> &'static str {
