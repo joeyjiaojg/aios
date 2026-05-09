@@ -143,4 +143,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: No conflicts found
-        run: echo "PR #${{ needs.check-conflicts.outputs.pr_number }} has no conflicts with master"
+        run: |
+          PR_NUM="${{ needs.check-conflicts.outputs.pr_number }}"
+          echo "PR ${PR_NUM} has no conflicts with master"
