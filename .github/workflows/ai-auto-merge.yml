@@ -67,7 +67,7 @@ jobs:
             echo "review_output=OpenCode did not respond within 4 minutes" >> $GITHUB_OUTPUT
             echo "approved=false" >> $GITHUB_OUTPUT
             echo "REVIEW_STATUS=timeout_or_error" >> $GITHUB_OUTPUT
-          elif echo "$REVIEW_RESULT" | grep -qi "^APPROVED"; then
+          elif echo "$REVIEW_RESULT" | grep -qi "APPROVED"; then
             echo "$REVIEW_RESULT" > /tmp/review_output_full.txt
             echo "review_output_file=/tmp/review_output_full.txt" >> $GITHUB_OUTPUT
             echo "approved=true" >> $GITHUB_OUTPUT
