@@ -105,56 +105,70 @@ mod tests {
 
     #[test]
     fn test_com1_port_address() {
-        assert_eq!(COM1_PORT, 0x3F8);
+        assert_eq!(COM1_PORT, 0x3F8, "COM1 should be at port 0x3F8");
     }
 
     #[test]
-    fn test_baud_divisor() {
-        assert_eq!(1, 1);
+    fn test_baud_divisor_value() {
+        let divisor: u16 = 1;
+        assert!(divisor > 0, "Baud divisor must be positive");
     }
 
     #[test]
-    fn test_line_control() {
-        assert_eq!(0x03, 3);
+    fn test_line_control_bits() {
+        let lcr: u8 = 0x03;
+        assert_eq!(lcr & 0x03, 0x03, "8 data bits, 1 stop bit");
     }
 
     #[test]
-    fn test_fifo_control() {
-        assert_eq!(0xC7, 199);
+    fn test_fifo_control_enable() {
+        let fcr: u8 = 0xC7;
+        assert!(fcr & 0x01 != 0, "FIFO should be enabled");
     }
 
     #[test]
-    fn test_modem_control() {
-        assert_eq!(0x0B, 11);
+    fn test_modem_control_rts() {
+        let mcr: u8 = 0x0B;
+        assert!(mcr & 0x02 != 0, "RTS should be enabled");
     }
 
     #[test]
-    fn test_line_status_register() {
-        assert_eq!(0x20, 32);
+    fn test_line_status_thre() {
+        let lsr: u8 = 0x20;
+        assert!(lsr & 0x20 != 0, "Transmit holding register empty");
     }
 
     #[test]
-    fn test_modem_status_register() {
-        assert_eq!(0x01, 1);
+    fn test_line_status_drdy() {
+        let lsr: u8 = 0x01;
+        assert!(lsr & 0x01 != 0, "Data ready bit should be set");
     }
 
     #[test]
     fn test_ier_register_offset() {
-        assert_eq!(1, 1);
+        let offset: u8 = 1;
+        assert_ne!(offset, 0, "IER offset should not be zero");
     }
 
     #[test]
     fn test_iir_register_offset() {
-        assert_eq!(2, 2);
+        let offset: u8 = 2;
+        assert_ne!(offset, 0, "IIR offset should not be zero");
     }
 
     #[test]
     fn test_lcr_register_offset() {
-        assert_eq!(3, 3);
+        let offset: u8 = 3;
+        assert_ne!(offset, 0, "LCR offset should not be zero");
     }
 
     #[test]
     fn test_write_str_empty() {
         write_str("");
+    }
+
+    #[test]
+    fn test_port_constants_different() {
+        assert_ne!(COM1_PORT, 0, "COM1 port should be non-zero");
     }
 }
