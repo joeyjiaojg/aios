@@ -41,6 +41,9 @@ run-debug: build
 		-D $(BUILD)/qemu.log
 
 iso: build
+	mkdir -p $(BUILD)/iso/boot/grub
+	cp $(KERNEL) $(BUILD)/iso/boot/aios.kernel
+	cp $(PROJECT_ROOT)/iso/boot/grub/grub.cfg $(BUILD)/iso/boot/grub/
 	grub-mkrescue -o $(ISO) $(BUILD)/iso/
 
 test: test-unit
