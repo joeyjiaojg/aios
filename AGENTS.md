@@ -53,7 +53,9 @@ AIOS is an x86_64 operating system kernel written in Rust, targeting `no_std` en
 6. **Create PR**: `gh pr create --title "feat(scope): description" --body "..."`
 7. **Check AI Review Result**: After PR is created/updated, run `gh pr view <number> --json body` to check the "AI Review Result" section for REJECTED/ APPROVED status
 8. **If REJECTED**: Fix ALL issues, commit, push again, then re-check AI Review Result
-9. **Never force-push** unless explicitly asked
+9. **If APPROVED**: Merge the PR with `gh pr merge <number> --delete-branch --merge`
+10. **NEVER merge a REJECTED PR** - continue fixing until APPROVED
+11. **Never force-push** unless explicitly asked
 
 ### 7. Common Mistakes to Avoid
 ❌ Using `Vec` in `no_std` code
