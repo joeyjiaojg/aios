@@ -1,0 +1,116 @@
+# AIOS Auto-Rebase Workflow
+# Automatically rebases PRs when they have merge conflicts
+
+name: AI Auto-Rebase
+
+on:
+  pull_request:
+    types: [synchronize, opened, reopened]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  check-conflicts:
+    runs-on: ubuntu-latest
+    outputs:
+      has_conflicts: ${{ steps.check.outputs.has_conflicts }}
+      pr_number: ${{ steps.check.outputs.pr_number }}
+      branch_name: ${{ steps.check.outputs.branch_name }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for merge conflicts
+        id: check
+        run: |
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          BRANCH_NAME="${{ github.event.pull_request.head.ref }}"
+          BASE_BRANCH="${{ github.base_ref }}"
+
+          echo "Checking PR #$PR_NUMBER ($BRANCH_NAME) against $BASE_BRANCH"
+
+          # Check if branch has conflicts with base
+          git fetch origin $BASE_BRANCH
+          MERGE_BASE=$(git merge-base HEAD origin/$BASE_BRANCH)
+          CONFLICTS=$(git diff --check origin/$BASE_BRANCH...HEAD 2>&1 | grep -c "conflict" || echo "0")
+
+          if [ "$CONFLICTS" -gt "0" ]; then
+            echo "has_conflicts=true" >> $GITHUB_OUTPUT
+            echo "PR #$PR_NUMBER has $CONFLICTS conflict markers"
+          else
+            # Also check via git merge
+            git checkout origin/$BASE_BRANCH -b temp_base || true
+            ATTEMPT_MERGE=$(git merge HEAD --no-commit --no-ff 2>&1 || true)
+            if echo "$ATTEMPT_MERGE" | grep -qi "conflict"; then
+              echo "has_conflicts=true" >> $GITHUB_OUTPUT
+              echo "PR #$PR_NUMBER has merge conflicts"
+              git merge --abort || true
+            else
+              echo "has_conflicts=false" >> $GITHUB_OUTPUT
+              echo "PR #$PR_NUMBER has no conflicts"
+              git merge --abort || true
+            fi
+            git checkout $BRANCH_NAME || true
+            git branch -D temp_base 2>/dev/null || true
+          fi
+
+          echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
+
+  rebase-branch:
+    needs: check-conflicts
+    if: needs.check-conflicts.outputs.has_conflicts == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Rebase onto master
+        env:
+          PR_NUMBER: ${{ needs.check-conflicts.outputs.pr_number }}
+          BRANCH_NAME: ${{ needs.check-conflicts.outputs.branch_name }}
+        run: |
+          echo "Rebasing $BRANCH_NAME onto origin/master..."
+
+          git fetch origin master
+          git checkout $BRANCH_NAME
+
+          # Stash any local changes
+          git stash
+
+          # Rebase onto master
+          git rebase origin/master
+
+          # Pop stashed changes if any
+          git stash pop || true
+
+          # Force push the rebased branch
+          git push origin $BRANCH_NAME --force-with-lease
+
+          echo "Rebase complete for PR #$PR_NUMBER"
+
+      - name: Post rebase comment
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `## 🤖 Auto-Rebase Complete\n\nThis PR was automatically rebased onto the latest master branch to resolve merge conflicts.\n\nIf there are still conflicts, please resolve them manually.`
+            });
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

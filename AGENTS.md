@@ -51,7 +51,12 @@ AIOS is an x86_64 operating system kernel written in Rust, targeting `no_std` en
 4. **Run checks**: `make check` (runs `fmt`, `clippy`, and `test-unit`) - MUST pass before pushing
 5. **Push**: `git push origin feat/<feature-name>`
 6. **Create PR**: `gh pr create --title "feat(scope): description" --body "..."`
-7. **Check AI Review Result**: After PR is created/updated, run `gh pr view <number> --json body` to check the "AI Review Result" section for REJECTED/ APPROVED status
+7. **Check AI Review Result**: After PR is created/updated:
+   - Run `gh pr view <number> --json comments` to get comments
+   - Look for a comment from `github-actions` containing "AI Review Result"
+   - Check the **Status** field in the comment body for REJECTED/APPROVED
+   - **IMPORTANT**: The CI check status (`gh pr checks`) may show PASS even when AI Review says REJECTED
+   - Always check the comment content for the actual result
 8. **If REJECTED**: Fix ALL issues, commit, push again, then re-check AI Review Result
 9. **If APPROVED**: Merge the PR with `gh pr merge <number> --delete-branch --merge`
 10. **NEVER merge a REJECTED PR** - continue fixing until APPROVED
