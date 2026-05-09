@@ -1,8 +1,8 @@
 // AIOS Kernel Entry Point
 //
-// Model: MiniMax M2.5 Free
+// Model: opencode/minimax-m2.5-free
 // Tool: opencode
-// Prompt: Create x86_64 kernel entry point with heap initialization.
+// Prompt: Create x86_64 kernel entry point with scheduler integration
 
 use crate::allocator;
 use x86_64::VirtAddr;
@@ -54,13 +54,19 @@ pub extern "C" fn _start(boot_info: &'static BootInfo) -> ! {
         allocator::init(VirtAddr::new(heap_start), heap_size)
     };
 
+    // Initialize interrupt subsystem and configure timer
+    crate::interrupts::init();
+    crate::interrupts::init_idt();
+
+    // Initialize task manager
     crate::process::init();
     crate::syscalls::init();
-    crate::shell::run_shell();
 
-    loop {
-        hlt();
-    }
+    // Enable interrupts to start timer and scheduler
+    crate::interrupts::enable_interrupts();
+
+    // Run the scheduler with idle task
+    crate::task::run_scheduler();
 }
 
 #[panic_handler]

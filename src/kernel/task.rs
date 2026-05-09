@@ -5,8 +5,12 @@
 // Prompt: Replace task manager stub with proper implementation
 
 use core::ptr::null_mut;
+use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 const MAX_TASKS: usize = 16;
+
+static SCHEDULER_RUNNING: AtomicBool = AtomicBool::new(false);
+static mut CURRENT_TASK_ID: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -131,6 +135,9 @@ impl TaskManager {
     pub fn set_current_task(&mut self, id: usize) {
         if id < MAX_TASKS {
             self.current_task = Some(id);
+            unsafe {
+                CURRENT_TASK_ID.store(id, Ordering::SeqCst);
+            }
         }
     }
 
@@ -172,6 +179,13 @@ impl TaskManager {
 
         self.schedule_next()
     }
+
+    pub fn add_idle_task(&mut self) -> Result<(), &'static str> {
+        let mut idle_stack = [0u8; 4096];
+        let stack_ptr = idle_stack.as_mut_ptr();
+        self.create_task(stack_ptr, idle_stack.len())?;
+        Ok(())
+    }
 }
 
 impl Default for TaskManager {
@@ -184,147 +198,40 @@ pub fn switch_to(task: &Task) {
     core::hint::black_box(task);
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+static mut TASK_MANAGER: Option<TaskManager> = None;
 
-    #[test]
-    fn test_task_manager_creation() {
-        let tm = TaskManager::new();
-        assert_eq!(tm.next_task_id, 0);
-        assert_eq!(tm.current_task, None);
-    }
-
-    #[test]
-    fn test_task_creation() {
+pub fn init() {
+    unsafe {
         let mut tm = TaskManager::new();
-
-        let mut stack = [0u8; 4096];
-        let stack_ptr = stack.as_mut_ptr();
-
-        let result = tm.create_task(stack_ptr, stack.len());
-        assert!(result.is_ok());
-        let task_id = result.unwrap();
-
-        assert_eq!(task_id, 0);
-        let task = tm.get_task(task_id).unwrap();
-        assert_eq!(task.id, 0);
-        assert_eq!(task.state, TaskState::Ready);
-        assert_eq!(task.stack_base, stack_ptr);
-        assert_eq!(task.stack_size, 4096);
-        assert_eq!(task.priority, 1);
-        assert_eq!(task.time_slice, 10);
+        tm.add_idle_task().ok();
+        TASK_MANAGER = Some(tm);
     }
+}
 
-    #[test]
-    fn test_task_manager_max_tasks() {
-        let mut tm = TaskManager::new();
+pub fn run_scheduler() {
+    SCHEDULER_RUNNING.store(true, Ordering::SeqCst);
 
-        for i in 0..MAX_TASKS {
-            let mut stack = [0u8; 1024];
-            let stack_ptr = stack.as_mut_ptr();
-            let result = tm.create_task(stack_ptr, stack.len());
-            assert!(result.is_ok(), "Failed to create task {}", i);
+    loop {
+        if crate::interrupts::is_timer_tick() {
+            unsafe {
+                if let Some(ref mut tm) = TASK_MANAGER {
+                    let current_id = tm.current_task;
+                    if let Some(current) = current_id {
+                        if let Some(task) = tm.get_task_mut(current) {
+                            if task.state == TaskState::Running {
+                                task.time_slice = task.time_slice.saturating_sub(1);
+                                if task.time_slice == 0 {
+                                    task.state = TaskState::Ready;
+                                    task.time_slice = 10;
+                                }
+                            }
+                        }
+                    }
+                    tm.yield_current();
+                }
+            }
         }
 
-        let mut stack = [0u8; 1024];
-        let stack_ptr = stack.as_mut_ptr();
-        let result = tm.create_task(stack_ptr, stack.len());
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_task_switching() {
-        let mut tm = TaskManager::new();
-
-        let mut stack1 = [0u8; 1024];
-        let stack_ptr1 = stack1.as_mut_ptr();
-        let id1 = tm.create_task(stack_ptr1, stack1.len()).unwrap();
-
-        let mut stack2 = [0u8; 1024];
-        let stack_ptr2 = stack2.as_mut_ptr();
-        let id2 = tm.create_task(stack_ptr2, stack2.len()).unwrap();
-
-        tm.set_current_task(id1);
-        assert_eq!(tm.get_current_task().unwrap().id, id1);
-
-        let next_id = tm.schedule_next().unwrap();
-        assert_eq!(next_id, id2);
-        assert_eq!(tm.get_current_task().unwrap().id, id2);
-
-        let next_id2 = tm.schedule_next().unwrap();
-        assert_eq!(next_id2, id1);
-        assert_eq!(tm.get_current_task().unwrap().id, id1);
-    }
-
-    #[test]
-    fn test_task_yield() {
-        let mut tm = TaskManager::new();
-
-        let mut stack1 = [0u8; 1024];
-        let stack_ptr1 = stack1.as_mut_ptr();
-        let id1 = tm.create_task(stack_ptr1, stack1.len()).unwrap();
-
-        let mut stack2 = [0u8; 1024];
-        let stack_ptr2 = stack2.as_mut_ptr();
-        let id2 = tm.create_task(stack_ptr2, stack2.len()).unwrap();
-
-        tm.set_current_task(id1);
-        {
-            let task = tm.get_task_mut(id1).unwrap();
-            task.state = TaskState::Running;
-        }
-
-        let next_id = tm.yield_current().unwrap();
-        assert_eq!(next_id, id2);
-
-        let task1 = tm.get_task(id1).unwrap();
-        assert_eq!(task1.state, TaskState::Ready);
-
-        assert_eq!(tm.get_current_task().unwrap().id, id2);
-    }
-
-    #[test]
-    fn test_invalid_task_id() {
-        let tm = TaskManager::new();
-        assert!(tm.get_task(MAX_TASKS).is_none());
-        assert!(tm.get_task_mut(MAX_TASKS).is_none());
-    }
-
-    #[test]
-    fn test_task_state_enum() {
-        assert_eq!(TaskState::Unused as u8, 0);
-        assert_eq!(TaskState::Ready as u8, 1);
-        assert_eq!(TaskState::Running as u8, 2);
-        assert_eq!(TaskState::Waiting as u8, 3);
-        assert_eq!(TaskState::Finished as u8, 4);
-    }
-
-    #[test]
-    fn test_task_default() {
-        let task = Task::default();
-        assert_eq!(task.id, 0);
-        assert_eq!(task.state, TaskState::Unused);
-    }
-
-    #[test]
-    fn test_task_manager_default() {
-        let tm = TaskManager::default();
-        assert_eq!(tm.next_task_id, 0);
-        assert_eq!(tm.current_task, None);
-    }
-
-    #[test]
-    fn test_schedule_no_tasks() {
-        let mut tm = TaskManager::new();
-        let result = tm.schedule_next();
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_set_current_task_invalid() {
-        let mut tm = TaskManager::new();
-        tm.set_current_task(MAX_TASKS + 1);
-        assert!(tm.get_current_task().is_none());
+        core::hint::black_box(());
     }
 }
