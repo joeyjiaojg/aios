@@ -1,18 +1,17 @@
 # AIOS Self-Evolution System
-# Automatically processes Issues, creates PRs, fixes, and merges
+# Automatically processes abandoned Issues/PRs
+# Only runs when no human is handling it
 
 name: AIOS Self-Evolve
 
 on:
   schedule:
-    # Check for new issues every 10 minutes
-    - cron: "*/10 * * * *"
-  issues:
-    types: [opened, labeled]
+    # Check for abandoned issues every 30 minutes
+    - cron: "*/30 * * * *"
   workflow_dispatch:
     inputs:
       issue_number:
-        description: "Specific issue to process"
+        description: "Specific issue to process (optional)"
         required: false
 
 permissions:
@@ -43,75 +42,177 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gh
 
-      - name: Process Next Issue
+      - name: Find Issue to Process
+        id: find-issue
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Get issue to process
           ISSUE_NUMBER="${{ github.event.inputs.issue_number }}"
-
-          if [ -z "$ISSUE_NUMBER" ]; then
-            # Get oldest open issue
-            ISSUE_NUMBER=$(gh issue list --state open --json number --jq '.[0].number // empty')
-          fi
-
-          if [ -z "$ISSUE_NUMBER" ]; then
-            echo "No open issues to process"
+          
+          if [ -n "$ISSUE_NUMBER" ]; then
+            echo "Processing manually specified issue #$ISSUE_NUMBER"
+            echo "issue_number=$ISSUE_NUMBER" >> $GITHUB_OUTPUT
             exit 0
           fi
-
-          echo "Processing Issue #$ISSUE_NUMBER"
-
-          # Only proceed if we have a valid issue number
-          if [ -z "$ISSUE_NUMBER" ]; then
-            echo "No valid issue number, skipping"
+          
+          echo "Searching for abandoned issues..."
+          
+          # Get all open issues
+          ISSUES=$(gh issue list --state open --json number,title,labels,comments --jq '
+            [.[] | select(
+              (.labels | length) == 0 and
+              (.comments | length) == 0
+            )]
+          ')
+          
+          echo "Found $(echo "$ISSUES" | jq length) issues with no labels and no comments"
+          
+          if [ "$(echo "$ISSUES" | jq length)" -eq 0 ]; then
+            echo "No abandoned issues found"
+            echo "issue_number=" >> $GITHUB_OUTPUT
             exit 0
           fi
+          
+          # Get oldest issue
+          ISSUE_NUMBER=$(echo "$ISSUES" | jq -r '.[0].number')
+          echo "Found abandoned issue #$ISSUE_NUMBER"
+          echo "issue_number=$ISSUE_NUMBER" >> $GITHUB_OUTPUT
 
+      - name: Check Existing Work
+        id: check-existing
+        if: steps.find-issue.outputs.issue_number != ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ISSUE_NUMBER="${{ steps.find-issue.outputs.issue_number }}"
+          
+          echo "Checking for existing work on issue #$ISSUE_NUMBER..."
+          
+          # Check 1: Is there a PR for this issue?
+          # Look for PRs with "issue #N" in title or body
+          PR_FOR_ISSUE=$(gh pr list --state all --json number,title --jq "
+            [.[] | select(
+              (.title | test(\"#$ISSUE_NUMBER\")) or
+              (.title | test(\"(#$ISSUE_NUMBER)\"))
+            )]
+          ")
+          
+          if [ "$(echo "$PR_FOR_ISSUE" | jq length)" -gt 0 ]; then
+            echo "Found existing PR for issue #$ISSUE_NUMBER - skipping"
+            echo "skip_reason=existing_pr" >> $GITHUB_OUTPUT
+            echo "skip=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          # Check 2: Is there a branch for this issue?
+          BRANCH_NAME="feat/auto-issue-$ISSUE_NUMBER"
+          if git ls-remote --heads origin "$BRANCH_NAME" | grep -q "$BRANCH_NAME"; then
+            echo "Found existing branch $BRANCH_NAME - skipping"
+            echo "skip_reason=existing_branch" >> $GITHUB_OUTPUT
+            echo "skip=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          # Check 3: Any human-created branches (not feat/auto-*)
+          HUMAN_BRANCHES=$(git ls-remote --heads origin | grep -v "feat/auto-" | grep -v "feat/test-" | grep -v "feat/kernel-binary" | awk '{print $2}' | cut -d/ -f3-)
+          if [ -n "$HUMAN_BRANCHES" ]; then
+            echo "Found human-created branches - checking if any relate to issue"
+            # This is just informational, we still proceed
+          fi
+          
+          echo "No existing work found - will process issue #$ISSUE_NUMBER"
+          echo "skip=false" >> $GITHUB_OUTPUT
+          echo "skip_reason=" >> $GITHUB_OUTPUT
+
+      - name: Skip if Human Handling
+        if: steps.check-existing.outputs.skip == 'true'
+        run: |
+          echo "Skipping issue - ${{ steps.check-existing.outputs.skip_reason }}"
+          echo "Human or another process is handling this issue"
+
+      - name: Process Issue
+        if: steps.check-existing.outputs.skip != 'true' && steps.find-issue.outputs.issue_number != ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ steps.find-issue.outputs.issue_number }}
+        run: |
+          echo "=== Processing Issue #$ISSUE_NUMBER ==="
+          
           # Get issue details
           ISSUE_TITLE=$(gh issue view $ISSUE_NUMBER --json title --jq '.title')
           ISSUE_BODY=$(gh issue view $ISSUE_NUMBER --json body --jq '.body')
-
-          # Create feature branch
+          
+          echo "Title: $ISSUE_TITLE"
+          echo "Creating branch: feat/auto-issue-$ISSUE_NUMBER"
+          
+          # Create branch
           BRANCH_NAME="feat/auto-issue-$ISSUE_NUMBER"
-          git checkout -b $BRANCH_NAME 2>/dev/null || git checkout $BRANCH_NAME
-
+          git checkout -b $BRANCH_NAME || git checkout $BRANCH_NAME
+          
+          # Add label to mark issue as being processed
+          gh issue edit $ISSUE_NUMBER --add-label "in-progress" 2>/dev/null || true
+          
           # Generate code using OpenCode
+          echo "Generating code with OpenCode..."
           opencode run -m opencode/minimax-m2.5-free \
             "Based on GitHub Issue #$ISSUE_NUMBER:
 
-          Title: $ISSUE_TITLE
+Title: $ISSUE_TITLE
 
-          Description: $ISSUE_BODY
+Description: $ISSUE_BODY
 
-          Create/modify the necessary code for AIOS x86_64 kernel in Rust no_std.
-          Follow AIOS conventions: Model/Tool/Prompt headers.
-          Add SAFETY comments on unsafe blocks.
-          Create/update files in src/kernel/.
+Create/modify the necessary code for AIOS x86_64 kernel in Rust no_std.
+Follow AIOS conventions: Model/Tool/Prompt headers.
+Add SAFETY comments on unsafe blocks.
+Create/update files in src/kernel/.
 
-          Output the complete file changes." 2>&1
-
+Output the complete file changes." 2>&1 | tee /tmp/opencode_output.txt
+          
+          # Check if there are actual changes
+          git add -A
+          CHANGES=$(git diff --cached --stat)
+          
+          if [ -z "$CHANGES" ] || [ "$CHANGES" = "" ]; then
+            echo "No code changes generated - cleaning up"
+            git checkout master
+            git branch -D $BRANCH_NAME 2>/dev/null || true
+            gh issue edit $ISSUE_NUMBER --remove-label "in-progress" 2>/dev/null || true
+            echo "skip_reason=no_changes" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          echo "Code changes generated:"
+          echo "$CHANGES"
+          
           # Commit changes
-          git add src/kernel/ || true
           git commit -m "feat(kernel): auto-implement Issue #$ISSUE_NUMBER
 
-          Model: MiniMax M2.5 Free
-          Tool: opencode
-          Prompt: Auto-implement Issue #$ISSUE_NUMBER" || echo "No changes to commit"
+- $ISSUE_TITLE
 
-          # Push and create PR
-          git push origin $BRANCH_NAME 2>&1 || true
+Model: opencode/minimax-m2.5-free
+Tool: opencode
+Prompt: Auto-implement Issue #$ISSUE_NUMBER"
+          
+          # Push branch
+          git push origin $BRANCH_NAME 2>&1
+          
+          # Create PR
+          gh pr create --head $BRANCH_NAME --base master \
+            --title "[Auto] $ISSUE_TITLE" \
+            --body "Automated implementation of Issue #$ISSUE_NUMBER
 
-          # Create PR if not exists
-          PR_EXISTS=$(gh pr list --head $BRANCH_NAME --json number --jq 'length')
-          if [ "$PR_EXISTS" -eq 0 ]; then
-            gh pr create --head $BRANCH_NAME --base master \
-              --title "feat(kernel): auto-implement Issue #$ISSUE_NUMBER" \
-              --body "Automated implementation of Issue #$ISSUE_NUMBER
+## Summary
+Auto-generated code based on issue description.
 
-          Model: MiniMax M2.5 Free
-          Tool: opencode
-          Prompt: Auto-implement from Issue" || true
-          fi
+## Changes
+$(git diff origin/master --stat)
 
-          echo "Issue #$ISSUE_NUMBER processed: Branch $BRANCH_NAME"
+## Notes
+- Generated by AIOS Self-Evolve system
+- May need human review before merge
+
+Model: opencode/minimax-m2.5-free
+Tool: opencode
+Prompt: Auto-implement Issue #$ISSUE_NUMBER"
+          
+          echo "Issue #$ISSUE_NUMBER processed: PR created"
