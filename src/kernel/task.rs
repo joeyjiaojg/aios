@@ -199,12 +199,19 @@ pub fn switch_to(task: &Task) {
 }
 
 static mut TASK_MANAGER: Option<TaskManager> = None;
+static mut TASK_MANAGER_INIT: bool = false;
 
 pub fn init() {
+    // # Safety
+    // TASK_MANAGER is only initialized once during boot, before interrupts are enabled.
+    // This is a single-core kernel, so there are no data races.
     unsafe {
-        let mut tm = TaskManager::new();
-        tm.add_idle_task().ok();
-        TASK_MANAGER = Some(tm);
+        if !TASK_MANAGER_INIT {
+            let mut tm = TaskManager::new();
+            tm.add_idle_task().ok();
+            TASK_MANAGER = Some(tm);
+            TASK_MANAGER_INIT = true;
+        }
     }
 }
 
@@ -213,6 +220,9 @@ pub fn run_scheduler() {
 
     loop {
         if crate::interrupts::is_timer_tick() {
+            // # Safety
+            // TASK_MANAGER is accessed only from this single-threaded scheduler loop.
+            // The scheduler runs on a single CPU core in this kernel implementation.
             unsafe {
                 if let Some(ref mut tm) = TASK_MANAGER {
                     let current_id = tm.current_task;
@@ -233,5 +243,99 @@ pub fn run_scheduler() {
         }
 
         core::hint::black_box(());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_task_manager_creation() {
+        let tm = TaskManager::new();
+        assert_eq!(tm.next_task_id, 0);
+        assert_eq!(tm.current_task, None);
+    }
+
+    #[test]
+    fn test_task_creation() {
+        let mut tm = TaskManager::new();
+        let mut stack = [0u8; 4096];
+        let stack_ptr = stack.as_mut_ptr();
+        let result = tm.create_task(stack_ptr, stack.len());
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_task_manager_max_tasks() {
+        let mut tm = TaskManager::new();
+        for i in 0..MAX_TASKS {
+            let mut stack = [0u8; 1024];
+            let stack_ptr = stack.as_mut_ptr();
+            let result = tm.create_task(stack_ptr, stack.len());
+            assert!(result.is_ok(), "Failed to create task {}", i);
+        }
+        let mut stack = [0u8; 1024];
+        let stack_ptr = stack.as_mut_ptr();
+        let result = tm.create_task(stack_ptr, stack.len());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_task_state_enum() {
+        assert_eq!(TaskState::Unused as u8, 0);
+        assert_eq!(TaskState::Ready as u8, 1);
+        assert_eq!(TaskState::Running as u8, 2);
+        assert_eq!(TaskState::Waiting as u8, 3);
+        assert_eq!(TaskState::Finished as u8, 4);
+    }
+
+    #[test]
+    fn test_task_default() {
+        let task = Task::default();
+        assert_eq!(task.id, 0);
+        assert_eq!(task.state, TaskState::Unused);
+    }
+
+    #[test]
+    fn test_task_manager_default() {
+        let tm = TaskManager::default();
+        assert_eq!(tm.next_task_id, 0);
+        assert_eq!(tm.current_task, None);
+    }
+
+    #[test]
+    fn test_schedule_no_tasks() {
+        let mut tm = TaskManager::new();
+        let result = tm.schedule_next();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_set_current_task_invalid() {
+        let mut tm = TaskManager::new();
+        tm.set_current_task(MAX_TASKS + 1);
+        assert!(tm.get_current_task().is_none());
+    }
+
+    #[test]
+    fn test_task_yield() {
+        let mut tm = TaskManager::new();
+        let mut stack1 = [0u8; 1024];
+        let stack_ptr1 = stack1.as_mut_ptr();
+        let id1 = tm.create_task(stack_ptr1, stack1.len()).unwrap();
+        tm.set_current_task(id1);
+        {
+            let task = tm.get_task_mut(id1).unwrap();
+            task.state = TaskState::Running;
+        }
+        tm.yield_current();
+    }
+
+    #[test]
+    fn test_add_idle_task() {
+        let mut tm = TaskManager::new();
+        let result = tm.add_idle_task();
+        assert!(result.is_ok());
     }
 }

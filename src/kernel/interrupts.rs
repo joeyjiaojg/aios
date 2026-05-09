@@ -13,8 +13,14 @@ use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame};
 pub const PIC_1_OFFSET: u8 = 32;
 pub const PIC_2_OFFSET: u8 = PIC_1_OFFSET + 8;
 
+// # Safety
+// PICS is only accessed through synchronized access functions (init_pic, end_of_interrupt).
+// The Once pattern ensures single initialization before use.
 static mut PICS: Option<ChainedPics> = None;
 
+// # Safety
+// IDT is initialized once during boot before interrupts are enabled.
+// The Once pattern ensures single initialization.
 static IDT_ONCE: Once = Once::new();
 static mut IDT: Option<InterruptDescriptorTable> = None;
 
@@ -69,8 +75,10 @@ fn init_pic() {
 }
 
 fn configure_pit_timer() {
-    // PIT channel 0 is connected to IRQ0 (timer interrupt)
-    // Config: binary mode, mode 3 (square wave generator), both bytes LSB then MSB
+    // # Safety
+    // Writing to PIT I/O ports (0x43, 0x40) is safe - these are standard PC hardware
+    // The PIT is a well-documented legacy device, writing to its registers is a standard
+    // kernel initialization procedure. We configure channel 0 in mode 3 (square wave).
     let mut command_port = Port::<u8>::new(0x43);
     let mut data_port = Port::<u8>::new(0x40);
 
@@ -79,11 +87,10 @@ fn configure_pit_timer() {
     // Divisor = 1193182 / 100 = 11931
     let divisor: u16 = 11931;
 
+    // # Safety
+    // Writing to PIT control register and data port is safe - standard kernel init
     unsafe {
-        // Send command: channel 0, lobyte/hibyte, mode 3 (square wave), binary
         command_port.write(0x36);
-
-        // Send divisor LSB then MSB
         data_port.write((divisor & 0xFF) as u8);
         data_port.write(((divisor >> 8) & 0xFF) as u8);
     }
