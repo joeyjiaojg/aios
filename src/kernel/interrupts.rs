@@ -19,52 +19,50 @@ pub const PIC_2_OFFSET: u8 = PIC_1_OFFSET + 8;
 static PICS: Mutex<Option<ChainedPics>> = Mutex::new(None);
 
 // # Safety
-// IDT is initialized once during boot. load() must be called after all handlers are registered.
-// Used only through init() function which is called once.
-static mut IDT_FOR_LOAD: Option<InterruptDescriptorTable> = None;
+// IDT is initialized once during boot for handler registration.
+// Used only through init_idt() function for registering handlers.
+static IDT: Mutex<Option<InterruptDescriptorTable>> = Mutex::new(None);
 
 // # Safety
-// IDT is protected by a Mutex and initialized once during boot.
-// Only accessed through init_idt() function for registering handlers.
-static IDT: Mutex<Option<InterruptDescriptorTable>> = Mutex::new(None);
+// IDT_STATIC is used only in init() for loading the IDT.
+// It is set once during init() and never modified afterwards.
+static mut IDT_STATIC: Option<InterruptDescriptorTable> = None;
 
 pub static TIMER_TICK: AtomicBool = AtomicBool::new(false);
 
-fn init_idt_once() {
+fn create_idt() -> InterruptDescriptorTable {
     // # Safety
-    // IDT initialization happens once during kernel boot before interrupts are enabled.
-    // This is a single-core kernel, so there are no data races during initialization.
-    let mut idt_guard = IDT.lock();
-    if idt_guard.is_none() {
-        let mut idt = InterruptDescriptorTable::new();
-        idt.breakpoint.set_handler_fn(breakpoint_handler);
-        idt.double_fault.set_handler_fn(double_fault_handler);
-        // # Safety
-        // IDT_FOR_LOAD is used only in init() which is called once after initialization.
-        // This is safe because we immediately store the IDT and it stays valid.
-        unsafe {
-            IDT_FOR_LOAD = Some(core::ptr::read(&idt));
-        }
-        *idt_guard = Some(idt);
-    }
+    // IDT creation happens during kernel boot before interrupts are enabled.
+    let mut idt = InterruptDescriptorTable::new();
+    idt.breakpoint.set_handler_fn(breakpoint_handler);
+    idt.double_fault.set_handler_fn(double_fault_handler);
+    idt
 }
 
 pub fn init() {
-    init_idt_once();
-    init_pic();
-    configure_pit_timer();
+    // Create IDT
+    let idt = create_idt();
 
     // # Safety
-    // Loading IDT is safe - IDT_FOR_LOAD is set in init_idt_once() above.
-    // This enables CPU exception handling. Called once during boot.
+    // Store IDT in static for loading. IDT is valid and will not be modified.
     unsafe {
-        IDT_FOR_LOAD.as_ref().unwrap().load();
+        IDT_STATIC = Some(idt);
+        IDT_STATIC.as_ref().unwrap().load();
     }
+
+    // Store in mutex for later use by init_idt()
+    let mut idt_guard = IDT.lock();
+    // # Safety
+    // Moving idt here is safe because we pass ownership to the mutex.
+    *idt_guard = Some(unsafe { core::ptr::read(IDT_STATIC.as_ref().unwrap()) });
+
+    init_pic();
+    configure_pit_timer();
 }
 
 pub fn init_idt() {
     // # Safety
-    // Registering timer interrupt handler is safe - IDT is initialized during boot.
+    // Registering timer interrupt handler is safe - IDT is initialized during init().
     // This enables hardware timer interrupts for the scheduler.
     let mut guard = IDT.lock();
     if let Some(ref mut idt) = *guard {
@@ -168,8 +166,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_idt_init() {
-        init_idt_once();
+    fn test_idt_creation() {
+        create_idt();
     }
 
     #[test]
