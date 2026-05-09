@@ -101,7 +101,34 @@ AIOS is an x86_64 operating system kernel written in Rust, targeting `no_std` en
 | #42 | #59 | Kernel Subsystems Wire-up |
 | #43 | #48 | GRUB/Multiboot Configuration |
 
-## Emergency Debugging
+### 11. Workflow Enforcement Skill
+
+**USE the workflow-enforcer skill before ANY push operation!**
+
+The workflow-enforcer skill (`skill:workflow-enforcer`) enforces these rules:
+
+```bash
+# Before push (checks if trying to push to master)
+skill:workflow-enforcer pre-push
+
+# After PR merges (closes issue, cleans up branches)
+skill:workflow-enforcer post-merge <pr_number>
+
+# Cleanup all merged branches
+skill:workflow-enforcer cleanup-branches
+
+# Audit master for direct pushes
+skill:workflow-enforcer audit
+```
+
+**Rules enforced:**
+- ❌ FORBIDDEN: Push directly to `master`
+- ❌ FORBIDDEN: Run `gh pr merge` manually
+- ✅ MUST: Close issue when PR merges (extracts "Closes #N" from PR body)
+- ✅ MUST: Delete merged branches (local and remote)
+- ✅ MUST: Use PR workflow for all changes
+
+### 12. Emergency Debugging
 If PR gets REJECTED repeatedly:
 1. Read the REJECTED reason carefully
 2. Check if `Vec` is used → replace with fixed array

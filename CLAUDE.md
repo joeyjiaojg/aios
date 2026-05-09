@@ -1,68 +1,83 @@
-# CLAUDE.md for AIOS Project
+# AIOS - Claude Code Agent Guidelines
 
-## Project Context
-- **Project**: AIOS - x86_64 OS kernel in Rust
-- **Target**: `no_std` environment (bare metal)
-- **Key dependencies**: `spin`, `x86_64`
+## Quick Reference
+- Project: AIOS x86_64 kernel in Rust (no_std)
+- Key rules: No Vec/String, # Safety comments required, minimum 10 tests
+- Workflow: Use `skill:workflow-enforcer pre-push` before push, `post-merge` after merge
 
-## Rules for Claude Code / OpenCode
+## Critical Rules
 
-### Mandatory File Header
-Every `.rs` file MUST start with:
+### 1. Code Style
+- All kernel code must be `no_std` compatible
+- Never use `Vec`, `String`, or `alloc` types
+- Use fixed-size arrays: `[T; N]` instead of `Vec<T>`
+- Files must end with a newline character
+
+### 2. Safety Comments
 ```rust
-// AIOS <Module Name>
-//
-// Model: opencode/minimax-m2.5-free
-// Tool: opencode
-// Prompt: <description>
+// # Safety
+// <explain why this is safe>
 ```
+Required for all `unsafe` blocks.
 
-### no_std Constraints
-- ❌ **NEVER** use: `Vec`, `String`, `Box`, `alloc`
-- ✅ **USE**: Fixed arrays `[T; N]`, `spin::Mutex`, `core::` types
-- ✅ **USE**: `[0u8; SIZE]` for data buffers
+### 3. Testing
+- Minimum 10 tests per module
+- Test naming: `test_<module>_<function>_<scenario>`
 
-### Safety Rules
-1. Avoid `unsafe` when possible
-2. If `unsafe` is needed:
-   - Add `/// # Safety` doc comment
-   - Explain why it's safe
-3. Prefer fixed arrays over raw pointers
-
-### Commit Format
+### 4. Commit Format
 ```
-type(scope): subject
+<type>(<scope>): <subject>
 
-- description
+- <description>
 - Model: opencode/minimax-m2.5-free
 - Tool: opencode
-- Prompt: <prompt>
+- Prompt: <actual prompt used>
 ```
 
-### Testing
-- Min 10 tests per module
-- No `Vec` in tests
-- Test file: `src/kernel/<module>.rs` (within `#[cfg(test)]`)
+## Workflow Enforcement (IMPORTANT!)
 
-### Common Errors (Learned the Hard Way)
-1. **PR#6 REJECTED 5 times** because:
-   - Used `Vec` in `no_std` code
-   - `unsafe` block without `# Safety` comment
-   - Forgot newline at EOF
-   - Test assertion wrong (`node_count == 0` but root exists)
-   
-2. **PR#5 didn't exist** - should have created from Issue#5
+**Use skill:workflow-enforcer BEFORE any git push:**
 
-### Workflow
-1. Check Issue#N exists
-2. Create branch `feat/<name>`
-3. Code + test
-4. Commit with proper format
-5. **Run `make check`** (fmt + clippy + test-unit) - MUST pass before push
-6. Push + create PR#N (match Issue number)
-7. Check AI Review Result (`gh pr view <N> --json body` → look for REJECTED/APPROVED)
-8. If REJECTED → fix issues → goto 4
+```bash
+# Before any push (mandatory check)
+skill:workflow-enforcer pre-push
 
-### Quick Links
-- Issues: https://github.com/joeyjiaojg/aios/issues
-- PRs: https://github.com/joeyjiaojg/aios/pulls
+# After PR merges
+skill:workflow-enforcer post-merge <pr_number>
+
+# Cleanup merged branches
+skill:workflow-enforcer cleanup-branches
+```
+
+**Rules:**
+- ❌ FORBIDDEN: Push directly to `master` - always use PR workflow
+- ❌ FORBIDDEN: Run `gh pr merge` manually - let auto-merge handle it
+- ✅ MUST: Close issue when PR merges (check "Closes #N" in PR body)
+- ✅ MUST: Delete merged branches (local and remote)
+- ✅ MUST: Use PR workflow for all changes
+
+## PR Workflow
+1. `git fetch origin master && git checkout master && git pull`
+2. `git checkout -b feat/<feature-name>`
+3. Run `make check` - MUST pass before push
+4. `git push origin feat/<feature-name>` - NEVER to master
+5. `gh pr create --title "..." --body "..."`
+6. Check AI Review Result in PR comments (not CI status)
+7. If REJECTED: Fix issues, push again
+8. If APPROVED: Wait for auto-merge (don't run `gh pr merge`)
+
+## Common Mistakes
+❌ Using `Vec` in `no_std` code
+❌ Forgetting newline at end of file
+❌ Missing `# Safety` comments on `unsafe` blocks
+❌ Pushing directly to master
+❌ Running `gh pr merge` manually
+
+## Self-Evolution
+- Self-evolve runs every 30 minutes on schedule
+- Skips issues with labels, comments, or existing PRs
+- Creates `feat/auto-issue-N` branches
+- Requires AI review before merge
+
+## Skill Location
+`.github/skills/workflow-enforcer/`
