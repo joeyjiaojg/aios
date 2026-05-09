@@ -49,7 +49,7 @@ AIOS is an x86_64 operating system kernel written in Rust, targeting `no_std` en
 2. **Create branch**: `git checkout -b feat/<feature-name>`
 3. **Commit changes** with proper format (see above)
 4. **Run checks**: `make check` (runs `fmt`, `clippy`, and `test-unit`) - MUST pass before pushing
-5. **Push**: `git push origin feat/<feature-name>`
+5. **Push to branch**: `git push origin feat/<feature-name>` - NEVER push directly to master
 6. **Create PR**: `gh pr create --title "feat(scope): description" --body "..."`
 7. **Check AI Review Result**: After PR is created/updated:
    - Run `gh pr view <number> --json comments` to get comments
@@ -61,6 +61,7 @@ AIOS is an x86_64 operating system kernel written in Rust, targeting `no_std` en
 9. **If APPROVED**: Merge the PR with `gh pr merge <number> --delete-branch --merge`
 10. **NEVER merge a REJECTED PR** - continue fixing until APPROVED
 11. **Never force-push** unless explicitly asked
+12. **Never push directly to master** - always use PR workflow
 
 ### 7. Common Mistakes to Avoid
 ❌ Using `Vec` in `no_std` code
@@ -69,6 +70,7 @@ AIOS is an x86_64 operating system kernel written in Rust, targeting `no_std` en
 ❌ assertion errors in tests (e.g., expecting `node_count == 0` when root node exists)
 ❌ Raw pointers when fixed arrays work (`Option<*mut u8>` → `[u8; MAX_DATA_SIZE]`)
 ❌ Creating PR#5 when Issue#5 exists (should match numbers)
+❌ Pushing directly to master - always use PR workflow
 
 ### 8. Git Branching Strategy
 - `master`: stable, merged code only
