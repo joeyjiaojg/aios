@@ -264,6 +264,11 @@ mod tests {
         let stack_ptr = stack.as_mut_ptr();
         let result = tm.create_task(stack_ptr, stack.len());
         assert!(result.is_ok());
+        let task_id = result.unwrap();
+        assert_eq!(task_id, 0);
+        let task = tm.get_task(task_id).unwrap();
+        assert_eq!(task.id, 0);
+        assert_eq!(task.state, TaskState::Ready);
     }
 
     #[test]
@@ -329,7 +334,11 @@ mod tests {
             let task = tm.get_task_mut(id1).unwrap();
             task.state = TaskState::Running;
         }
-        tm.yield_current();
+        let next = tm.yield_current();
+        assert!(next.is_some());
+        assert_eq!(tm.get_current_task().unwrap().id, next.unwrap());
+        let task = tm.get_task(id1).unwrap();
+        assert_eq!(task.state, TaskState::Ready);
     }
 
     #[test]
@@ -337,5 +346,12 @@ mod tests {
         let mut tm = TaskManager::new();
         let result = tm.add_idle_task();
         assert!(result.is_ok());
+        assert!(tm.get_task(0).is_some());
+    }
+
+    #[test]
+    fn test_invalid_task_id() {
+        let tm = TaskManager::new();
+        assert!(tm.get_task(MAX_TASKS).is_none());
     }
 }
