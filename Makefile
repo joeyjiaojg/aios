@@ -50,6 +50,11 @@ test-unit:
 test-integration:
 	$(RUSTUP) run nightly $(CARGO) test --test integration --target $(TARGET) -Zbuild-std=core,alloc
 
+test-qemu:
+	@echo "Running QEMU automated tests..."
+	@chmod +x test/qemu/run_tests.sh
+	@test/qemu/run_tests.sh
+
 # Code quality checks
 fmt:
 	$(RUSTUP) run nightly $(CARGO) fmt --all -- --check
@@ -70,3 +75,4 @@ clean:
 	rm -rf $(BUILD)
 	rm -rf target
 	cargo clean
+
