@@ -48,11 +48,12 @@ AIOS is an x86_64 operating system kernel written in Rust, targeting `no_std` en
 1. **Fetch and sync**: `git fetch origin master && git checkout master && git pull`
 2. **Create branch**: `git checkout -b feat/<feature-name>`
 3. **Commit changes** with proper format (see above)
-4. **Push**: `git push origin feat/<feature-name>`
-5. **Create PR**: `gh pr create --title "feat(scope): description" --body "..."`
-6. **Wait for CI + AI Review** (AI Auto-Merge workflow)
-7. **If REJECTED**: Fix ALL issues, commit, push again
-8. **Never force-push** unless explicitly asked
+4. **Run checks**: `make check` (runs `fmt`, `clippy`, and `test-unit`) - MUST pass before pushing
+5. **Push**: `git push origin feat/<feature-name>`
+6. **Create PR**: `gh pr create --title "feat(scope): description" --body "..."`
+7. **Check AI Review Result**: After PR is created/updated, run `gh pr view <number> --json body` to check the "AI Review Result" section for REJECTED/ APPROVED status
+8. **If REJECTED**: Fix ALL issues, commit, push again, then re-check AI Review Result
+9. **Never force-push** unless explicitly asked
 
 ### 7. Common Mistakes to Avoid
 ❌ Using `Vec` in `no_std` code
@@ -84,6 +85,7 @@ AIOS is an x86_64 operating system kernel written in Rust, targeting `no_std` en
 | #3 | #3 | Enhanced Interrupts |
 | #5 | #7 | Device Driver Framework |
 | #6 | #6 | VFS Framework v4 |
+| #43 | #48 | GRUB/Multiboot Configuration |
 
 ## Emergency Debugging
 If PR gets REJECTED repeatedly:

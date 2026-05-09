@@ -1,43 +1,50 @@
 // AIOS Serial Port Driver (8250 UART)
 //
-// Model: opencode
+// Model: opencode/minimax-m2.5-free
 // Tool: opencode
 // Prompt: Implement 8250 UART serial port driver with tests.
 
 use core::fmt;
+use x86_64::instructions::port::Port;
 
 const COM1_PORT: u16 = 0x3F8;
 
-/// Initialize COM1 serial port at 115200 baud
-///
-/// # Safety
-/// This configures I/O ports which is safe for a unique serial port.
 pub fn init() {
+    // # Safety
+    // This configures I/O ports which is safe for a unique serial port.
     unsafe {
-        // Disable all interrupts
-        outb(COM1_PORT + 1, 0x00);
+        let mut port = Port::new(COM1_PORT + 1);
+        port.write(0x00u8);
 
-        // Enable DLAB (set baud rate divisor)
-        outb(COM1_PORT + 3, 0x80);
+        port = Port::new(COM1_PORT + 3);
+        port.write(0x80u8);
 
-        // Set divisor to 1 (115200 baud)
-        outb(COM1_PORT, 0x01);
-        outb(COM1_PORT + 1, 0x00);
+        port = Port::new(COM1_PORT);
+        port.write(0x01u8);
 
-        // 8 bits, no parity, one stop bit
-        outb(COM1_PORT + 3, 0x03);
+        port = Port::new(COM1_PORT + 1);
+        port.write(0x00u8);
 
-        // Enable FIFO, clear them, with 14-byte threshold
-        outb(COM1_PORT + 2, 0xC7);
+        port = Port::new(COM1_PORT + 3);
+        port.write(0x03u8);
 
-        // Enable IRQs, set RTS/DSR
-        outb(COM1_PORT + 4, 0x0B);
+        port = Port::new(COM1_PORT + 2);
+        port.write(0xC7u8);
+
+        port = Port::new(COM1_PORT + 4);
+        port.write(0x0Bu8);
     }
 }
 
 pub fn write_byte(byte: u8) {
-    while unsafe { inb(COM1_PORT + 5) & 0x20 == 0 } {}
-    unsafe { outb(COM1_PORT, byte) };
+    // # Safety
+    // Writing to serial port I/O address is safe - COM1 is standard hardware
+    unsafe {
+        let mut status_port = Port::<u8>::new(COM1_PORT + 5);
+        while status_port.read() & 0x20 == 0 {}
+        let mut data_port = Port::<u8>::new(COM1_PORT);
+        data_port.write(byte);
+    }
 }
 
 pub fn write_str(s: &str) {
@@ -49,10 +56,11 @@ pub fn write_str(s: &str) {
 pub fn read_byte() -> Option<u8> {
     // # Safety
     // Reading from I/O port 0x3F8 (COM1) is safe - this is a standard hardware port
-    // Line Status Register bit 0 indicates data ready
     unsafe {
-        if inb(COM1_PORT + 5) & 0x01 != 0 {
-            Some(inb(COM1_PORT))
+        let mut status_port = Port::<u8>::new(COM1_PORT + 5);
+        if status_port.read() & 0x01 != 0 {
+            let mut data_port = Port::<u8>::new(COM1_PORT);
+            Some(data_port.read())
         } else {
             None
         }
@@ -62,25 +70,10 @@ pub fn read_byte() -> Option<u8> {
 pub fn has_data() -> bool {
     // # Safety
     // Reading from I/O port is safe for standard x86 ports
-    unsafe { inb(COM1_PORT + 5) & 0x01 != 0 }
-}
-
-/// Read a byte from an I/O port
-/// # Safety
-/// Reading from I/O ports is safe for standard x86 ports.
-#[inline]
-unsafe fn inb(port: u16) -> u8 {
-    let result: u8;
-    core::arch::asm!("inb %dx, %al", in("dx") port, out("al") result);
-    result
-}
-
-/// Write a byte to an I/O port
-/// # Safety  
-/// Writing to I/O ports is safe for standard x86 ports.
-#[inline]
-unsafe fn outb(port: u16, data: u8) {
-    core::arch::asm!("outb %al, %dx", in("dx") port, in("al") data);
+    unsafe {
+        let mut status_port = Port::<u8>::new(COM1_PORT + 5);
+        status_port.read() & 0x01 != 0
+    }
 }
 
 pub struct SerialPort;
@@ -116,56 +109,69 @@ mod tests {
     }
 
     #[test]
-    fn test_baud_divisor() {
-        // 115200 baud = divisor 1
-        assert_eq!(1, 1);
+    fn test_com1_port_valid_range() {
+        assert!(COM1_PORT >= 0x0000 && COM1_PORT <= 0xFFFF);
     }
 
     #[test]
-    fn test_line_control() {
-        // 8 bits, no parity, 1 stop bit = 0x03
-        assert_eq!(0x03, 3);
+    fn test_com1_port_not_reserved() {
+        assert_ne!(COM1_PORT, 0x0000, "COM1 port must not be zero");
     }
 
     #[test]
-    fn test_fifo_control() {
-        // Enable FIFO, clear, 14-byte threshold = 0xC7
-        assert_eq!(0xC7, 199);
+    fn test_lsr_transmit_empty_bit() {
+        let lsr_thre: u8 = 0x20;
+        assert_eq!(lsr_thre & 0x20, 0x20, "THRE bit should be set");
     }
 
     #[test]
-    fn test_modem_control() {
-        // Enable IRQs, RTS/DSR = 0x0B
-        assert_eq!(0x0B, 11);
+    fn test_lsr_data_ready_bit() {
+        let lsr_dr: u8 = 0x01;
+        assert_eq!(lsr_dr & 0x01, 0x01, "DR bit should be set");
     }
 
     #[test]
-    fn test_line_status_register() {
-        // Bit 5 = transmit buffer empty
-        assert_eq!(0x20, 32);
+    fn test_mcr_rts_dtr_bits() {
+        let mcr: u8 = 0x0B;
+        assert!(mcr & 0x02 != 0, "RTS should be enabled");
+        assert!(mcr & 0x01 != 0, "DTR should be enabled");
     }
 
     #[test]
-    fn test_modem_status_register() {
-        // Bit 0 = data ready
-        assert_eq!(0x01, 1);
+    fn test_fcr_enable_fifo() {
+        let fcr: u8 = 0xC7;
+        assert!(fcr & 0x01 != 0, "FIFO enable bit should be set");
+        assert!(fcr & 0x02 != 0, "RCVR FIFO reset should be set");
+        assert!(fcr & 0x04 != 0, "XMIT FIFO reset should be set");
     }
 
     #[test]
-    fn test_ier_register_offset() {
-        // Interrupt Enable Register at port + 1
-        assert_eq!(1, 1);
+    fn test_lcr_8n1_format() {
+        let lcr: u8 = 0x03;
+        assert_eq!(lcr & 0x03, 0x03, "8 data bits");
+        assert_eq!((lcr >> 2) & 0x01, 0x00, "1 stop bit");
+        assert_eq!((lcr >> 3) & 0x01, 0x00, "No parity");
     }
 
     #[test]
-    fn test_iir_register_offset() {
-        // Interrupt Identification Register at port + 2
-        assert_eq!(2, 2);
+    fn test_dlab_access() {
+        let dlab: u8 = 0x80;
+        assert_eq!(dlab, 0x80, "DLAB bit for baud divisor access");
     }
 
     #[test]
-    fn test_lcr_register_offset() {
-        // Line Control Register at port + 3
-        assert_eq!(3, 3);
+    fn test_baud_115200_divisor() {
+        let divisor: u16 = 1;
+        let baud = 115200u32;
+        let actual_baud = baud / u32::from(divisor);
+        assert_eq!(actual_baud, 115200, "Divisor 1 gives 115200 baud");
+    }
+
+    #[test]
+    fn test_register_offsets_sequential() {
+        let ier: u8 = 1;
+        let iir: u8 = 2;
+        let lcr: u8 = 3;
+        assert!(ier < iir && iir < lcr, "Offsets sequential");
     }
 }

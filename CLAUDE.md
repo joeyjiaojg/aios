@@ -58,9 +58,10 @@ type(scope): subject
 2. Create branch `feat/<name>`
 3. Code + test
 4. Commit with proper format
-5. Push + create PR#N (match Issue number)
-6. Wait for AI Review
-7. Fix REJECTED issues → goto 4
+5. **Run `make check`** (fmt + clippy + test-unit) - MUST pass before push
+6. Push + create PR#N (match Issue number)
+7. Check AI Review Result (`gh pr view <N> --json body` → look for REJECTED/APPROVED)
+8. If REJECTED → fix issues → goto 4
 
 ### Quick Links
 - Issues: https://github.com/joeyjiaojg/aios/issues
