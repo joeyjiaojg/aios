@@ -4,6 +4,7 @@
 ARCH := x86_64
 TARGET := $(ARCH)-unknown-none
 BUILD := build
+PROJECT_ROOT := $(shell pwd)
 ISO := $(BUILD)/aios.iso
 KERNEL := $(BUILD)/kernel.bin
 QEMU := qemu-system-x86_64
