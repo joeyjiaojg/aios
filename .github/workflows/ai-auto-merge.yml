@@ -68,13 +68,13 @@ jobs:
             echo "approved=false" >> $GITHUB_OUTPUT
             echo "REVIEW_STATUS=timeout_or_error" >> $GITHUB_OUTPUT
           elif echo "$REVIEW_RESULT" | grep -qi "APPROVED"; then
-            echo "$REVIEW_RESULT" > /tmp/review_output_full.txt
-            echo "review_output_file=/tmp/review_output_full.txt" >> $GITHUB_OUTPUT
+            echo "$REVIEW_RESULT" > /tmp/review_output.txt
+            echo "review_output_file=/tmp/review_output.txt" >> $GITHUB_OUTPUT
             echo "approved=true" >> $GITHUB_OUTPUT
             echo "REVIEW_STATUS=approved" >> $GITHUB_OUTPUT
           else
-            echo "$REVIEW_RESULT" > /tmp/review_output_full.txt
-            echo "review_output_file=/tmp/review_output_full.txt" >> $GITHUB_OUTPUT
+            echo "$REVIEW_RESULT" > /tmp/review_output.txt
+            echo "review_output_file=/tmp/review_output.txt" >> $GITHUB_OUTPUT
             echo "approved=false" >> $GITHUB_OUTPUT
             echo "REVIEW_STATUS=rejected" >> $GITHUB_OUTPUT
           fi
@@ -89,15 +89,25 @@ jobs:
             const isApproved = (process.env.IS_APPROVED || '') === 'true';
             let reviewOutput = 'No review output available';
             
+            console.log('DEBUG: REVIEW_OUTPUT_FILE =', reviewOutputFile);
+            console.log('DEBUG: IS_APPROVED =', process.env.IS_APPROVED);
+            console.log('DEBUG: isApproved =', isApproved);
+            
             // Read the review output from the temporary file if it exists
             if (reviewOutputFile) {
               try {
                 const fs = require('fs');
                 reviewOutput = fs.readFileSync(reviewOutputFile, 'utf8');
+                console.log('DEBUG: Successfully read', reviewOutput.length, 'chars');
               } catch (error) {
+                console.log('DEBUG: Error reading file:', error.message);
                 reviewOutput = 'Error reading review output: ' + error.message;
               }
+            } else {
+              console.log('DEBUG: reviewOutputFile is empty/falsy');
             }
+
+            console.log('DEBUG: Posting comment with reviewOutput length =', reviewOutput.length);
 
             await github.rest.issues.createComment({
               owner: context.repo.owner,
