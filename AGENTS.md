@@ -58,10 +58,11 @@ AIOS is an x86_64 operating system kernel written in Rust, targeting `no_std` en
    - **IMPORTANT**: The CI check status (`gh pr checks`) may show PASS even when AI Review says REJECTED
    - Always check the comment content for the actual result
 8. **If REJECTED**: Fix ALL issues, commit, push again, then re-check AI Review Result
-9. **If APPROVED**: Merge the PR with `gh pr merge <number> --delete-branch --merge`
+9. **If APPROVED**: Wait for GitHub auto-merge workflow - DO NOT run `gh pr merge` manually
 10. **NEVER merge a REJECTED PR** - continue fixing until APPROVED
 11. **Never force-push** unless explicitly asked
 12. **Never push directly to master** - always use PR workflow
+13. **Never run `gh pr merge` manually** - let the GitHub workflow auto-merge approved PRs
 
 ### 7. Common Mistakes to Avoid
 ❌ Using `Vec` in `no_std` code
@@ -71,6 +72,7 @@ AIOS is an x86_64 operating system kernel written in Rust, targeting `no_std` en
 ❌ Raw pointers when fixed arrays work (`Option<*mut u8>` → `[u8; MAX_DATA_SIZE]`)
 ❌ Creating PR#5 when Issue#5 exists (should match numbers)
 ❌ Pushing directly to master - always use PR workflow
+❌ Running `gh pr merge` manually - let auto-merge workflow handle it
 
 ### 8. Git Branching Strategy
 - `master`: stable, merged code only
