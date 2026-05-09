@@ -150,9 +150,9 @@ jobs:
         run: |
           echo "PR Event Action: ${{ github.event.action }}"
           echo "PR Merged: ${{ github.event.pull_request.merged }}"
-          
+          echo "Branch: ${{ github.event.pull_request.head.ref }}"
+
       - name: Delete branch
-        if: github.event.pull_request.merged == true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
