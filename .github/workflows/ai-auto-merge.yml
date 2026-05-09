@@ -144,9 +144,15 @@ jobs:
 
   cleanup-branch:
     runs-on: ubuntu-latest
-    if: github.event.action == 'closed' && github.event.pull_request.merged == true
+    if: github.event.action == 'closed'
     steps:
+      - name: Check merged status
+        run: |
+          echo "PR Event Action: ${{ github.event.action }}"
+          echo "PR Merged: ${{ github.event.pull_request.merged }}"
+          
       - name: Delete branch
+        if: github.event.pull_request.merged == true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
