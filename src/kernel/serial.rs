@@ -172,6 +172,6 @@ mod tests {
         let ier: u8 = 1;
         let iir: u8 = 2;
         let lcr: u8 = 3;
-        assert!(ier < iir && iir < lcr, "Register offsets should be sequential");
+        assert!(ier < iir && iir < lcr, "Offsets sequential");
     }
 }
