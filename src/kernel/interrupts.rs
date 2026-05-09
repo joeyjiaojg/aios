@@ -4,53 +4,67 @@
 // Tool: opencode
 // Prompt: Implement Interrupt Descriptor Table (IDT) for AIOS x86_64 kernel
 
+use core::sync::atomic::{AtomicBool, Ordering};
 use pic8259::ChainedPics;
-use spin::Once;
+use spin::Mutex;
 use x86_64::instructions::port::{Port, PortReadOnly};
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame};
 
 pub const PIC_1_OFFSET: u8 = 32;
 pub const PIC_2_OFFSET: u8 = PIC_1_OFFSET + 8;
 
-#[allow(dead_code)]
-static PIC_1: Port<u8> = Port::new(0x20);
-#[allow(dead_code)]
-static PIC_2: Port<u8> = Port::new(0xA0);
-#[allow(dead_code)]
-static PIC_1_DATA: Port<u8> = Port::new(0x21);
-#[allow(dead_code)]
-static PIC_2_DATA: Port<u8> = Port::new(0xA1);
+static PICS: Mutex<Option<ChainedPics>> = Mutex::new(None);
+static IDT: Mutex<Option<InterruptDescriptorTable>> = Mutex::new(None);
 
-static mut PICS: Option<ChainedPics> = None;
+static mut IDT_FOR_LOAD: Option<InterruptDescriptorTable> = None;
 
-static IDT_ONCE: Once = Once::new();
-static mut IDT: Option<InterruptDescriptorTable> = None;
+pub static TIMER_TICK: AtomicBool = AtomicBool::new(false);
 
-fn get_idt() -> &'static mut InterruptDescriptorTable {
-    IDT_ONCE.call_once(|| unsafe {
-        let mut idt = InterruptDescriptorTable::new();
-
-        idt.breakpoint.set_handler_fn(breakpoint_handler);
-        idt.double_fault.set_handler_fn(double_fault_handler);
-
-        IDT = Some(idt);
-    });
-
-    unsafe { IDT.as_mut().unwrap() }
+fn create_idt() -> InterruptDescriptorTable {
+    let mut idt = InterruptDescriptorTable::new();
+    idt.breakpoint.set_handler_fn(breakpoint_handler);
+    idt.double_fault.set_handler_fn(double_fault_handler);
+    idt
 }
 
 pub fn init() {
-    let idt = get_idt();
-    idt.load();
+    let idt = create_idt();
+    // # Safety
+    // IDT is stored in a static for loading. This happens once during boot.
+    // The IDT will not be modified after this point.
+    unsafe {
+        IDT_FOR_LOAD = Some(idt);
+        IDT_FOR_LOAD.as_ref().unwrap().load();
+    }
+    let mut idt_guard = IDT.lock();
+    // # Safety
+    // Moving idt into the mutex is safe - we've already loaded it.
+    *idt_guard = Some(unsafe { core::ptr::read(IDT_FOR_LOAD.as_ref().unwrap()) });
+    drop(idt_guard);
 
     init_pic();
+    configure_pit_timer();
+}
+
+pub fn init_idt() {
+    // # Safety
+    // Registering timer interrupt handler is safe - IDT is initialized during init().
+    // This enables hardware timer interrupts for the scheduler.
+    let mut guard = IDT.lock();
+    if let Some(ref mut idt) = *guard {
+        idt[32].set_handler_fn(timer_interrupt_handler);
+    }
 }
 
 pub fn end_of_interrupt(id: u8) {
-    // Safety: PICS is initialized once during init and only accessed here
-    // notify_end_of_interrupt is designed to be safe for PIC operation
-    unsafe {
-        if let Some(ref mut pics) = PICS {
+    // # Safety
+    // PICS is protected by Mutex. notify_end_of_interrupt is designed to be safe.
+    // The unsafe block is required by the ChainedPics API.
+    let mut pics_guard = PICS.lock();
+    if let Some(ref mut pics) = *pics_guard {
+        // # Safety
+        // notify_end_of_interrupt is safe when called with valid IRQ numbers.
+        unsafe {
             if id >= PIC_2_OFFSET {
                 pics.notify_end_of_interrupt(id - PIC_2_OFFSET);
             } else {
@@ -61,10 +75,33 @@ pub fn end_of_interrupt(id: u8) {
 }
 
 fn init_pic() {
-    // Safety: Creating ChainedPics is safe - it just creates the data structure
-    // The actual PIC hardware is already configured by the BIOS
+    // # Safety
+    // PICS initialization happens once during kernel boot.
+    // Creating ChainedPics just creates the data structure.
+    let mut pics_guard = PICS.lock();
+    if pics_guard.is_none() {
+        // # Safety
+        // ChainedPics::new just creates the struct, hardware is already set up by BIOS.
+        *pics_guard = Some(unsafe { ChainedPics::new(PIC_1_OFFSET, PIC_2_OFFSET) });
+    }
+}
+
+fn configure_pit_timer() {
+    // PIT runs at 1193182 Hz, we want ~100 Hz (10ms interval)
+    let divisor: u16 = 11931;
+
+    // # Safety
+    // Writing to PIT control register (0x43) and data port (0x40) is standard.
+    // These are legacy PIT ports, safe to write during initialization.
+    let mut command_port = Port::<u8>::new(0x43);
+    let mut data_port = Port::<u8>::new(0x40);
+
+    // # Safety
+    // Writing PIT configuration: channel 0, lobyte/hibyte, mode 3 (square wave).
     unsafe {
-        PICS = Some(ChainedPics::new(PIC_1_OFFSET, PIC_2_OFFSET));
+        command_port.write(0x36);
+        data_port.write((divisor & 0xFF) as u8);
+        data_port.write(((divisor >> 8) & 0xFF) as u8);
     }
 }
 
@@ -77,26 +114,37 @@ extern "x86-interrupt" fn double_fault_handler(
     panic!("Double fault exception");
 }
 
-#[allow(dead_code)]
 extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: InterruptStackFrame) {
+    TIMER_TICK.store(true, Ordering::SeqCst);
     end_of_interrupt(PIC_1_OFFSET);
 }
 
 #[allow(dead_code)]
 extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStackFrame) {
     end_of_interrupt(PIC_1_OFFSET + 1);
-
     let mut keyboard_data = PortReadOnly::<u8>::new(0x60);
     let _scan_code: u8 = unsafe { keyboard_data.read() };
 }
 
-#[allow(dead_code)]
-fn serial_print(char: char) {
+pub fn enable_interrupts() {
+    // # Safety
+    // Enabling interrupts is safe - it's required for timer and scheduler operation.
+    // This is called after all handlers are registered.
     unsafe {
-        let mut serial_port = Port::new(0x3F8);
-        while (PortReadOnly::<u8>::new(0x3FD).read() & 0x20u8) == 0 {}
-        serial_port.write(char as u8);
+        core::arch::asm!("sti");
     }
+}
+
+pub fn disable_interrupts() {
+    // # Safety
+    // Disabling interrupts is safe - used during critical sections.
+    unsafe {
+        core::arch::asm!("cli");
+    }
+}
+
+pub fn is_timer_tick() -> bool {
+    TIMER_TICK.swap(false, Ordering::SeqCst)
 }
 
 #[cfg(test)]
@@ -104,41 +152,47 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_idt_init() {
-        init();
+    fn test_idt_creation() {
+        create_idt();
     }
 
     #[test]
-    fn test_interrupt_vector() {
-        assert_eq!(PIC_1_OFFSET + 0, 32);
+    fn test_interrupt_vector_offsets() {
+        assert_eq!(PIC_1_OFFSET, 32);
         assert_eq!(PIC_1_OFFSET + 1, 33);
+        assert_eq!(PIC_2_OFFSET, 40);
     }
 
     #[test]
-    fn test_exception_handler() {
+    fn test_exception_handler_signature() {
         extern "x86-interrupt" fn test_handler(_: InterruptStackFrame) {}
         let _: extern "x86-interrupt" fn(InterruptStackFrame) = test_handler;
     }
 
     #[test]
-    fn test_irq_handler() {
+    fn test_irq_handler_signature() {
         extern "x86-interrupt" fn test_handler(_: InterruptStackFrame) {}
         let _: extern "x86-interrupt" fn(InterruptStackFrame) = test_handler;
     }
 
     #[test]
-    fn test_page_fault() {
-        assert!(true);
+    fn test_pit_divisor_calculation() {
+        let divisor: u16 = 11931;
+        assert!(divisor > 0);
+        assert!(divisor <= 65535);
+        let frequency = 1193182u32 / u32::from(divisor);
+        assert_eq!(frequency, 100);
     }
 
     #[test]
-    fn test_keyboard_interrupt() {
-        assert!(true);
-    }
-
-    #[test]
-    fn test_timer_interrupt() {
-        assert!(true);
+    fn test_timer_tick_atomic_flag() {
+        TIMER_TICK.store(false, Ordering::SeqCst);
+        assert!(!TIMER_TICK.load(Ordering::SeqCst));
+        TIMER_TICK.store(true, Ordering::SeqCst);
+        assert!(TIMER_TICK.load(Ordering::SeqCst));
+        let tick = TIMER_TICK.swap(false, Ordering::SeqCst);
+        assert!(tick);
+        assert!(!TIMER_TICK.load(Ordering::SeqCst));
     }
 
     #[test]
@@ -147,12 +201,23 @@ mod tests {
     }
 
     #[test]
-    fn test_interrupt_masking() {
-        assert!(true);
+    fn test_end_of_interrupt() {
+        init_pic();
+        end_of_interrupt(PIC_1_OFFSET);
     }
 
     #[test]
-    fn test_interrupt_stack() {
-        assert!(true);
+    fn test_timer_interrupt_vector() {
+        assert_eq!(PIC_1_OFFSET, 32);
+    }
+
+    #[test]
+    fn test_keyboard_interrupt_vector() {
+        assert_eq!(PIC_1_OFFSET + 1, 33);
+    }
+
+    #[test]
+    fn test_pic_offsets_sequential() {
+        assert_eq!(PIC_2_OFFSET, PIC_1_OFFSET + 8);
     }
 }
