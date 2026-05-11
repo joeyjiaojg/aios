@@ -71,7 +71,22 @@ skill:workflow-enforcer cleanup-branches
 ❌ Forgetting newline at end of file
 ❌ Missing `# Safety` comments on `unsafe` blocks
 ❌ Pushing directly to master
+❌ Force pushing without explicit user approval
 ❌ Running `gh pr merge` manually
+
+## Push / Force-Push Policy (ENFORCED BY HOOK)
+
+These rules are enforced by a PreToolUse hook in `~/.claude/settings.json`
+and apply **even in `dangerously-skip-permissions` mode**:
+
+| Action | Result |
+|--------|--------|
+| `git push … master` or `… :master` | **Hard blocked** (`exit 1`) — no override |
+| `git push --force` / `-f` (any branch) | **Blocked + user approval required** (`exit 2`) |
+| `gh pr merge` | **Hard blocked** (`exit 1`) — let auto-merge handle it |
+
+If you need to force-push to a feature branch, the hook will pause and
+ask the user explicitly — do NOT attempt to work around it.
 
 ## Self-Evolution
 - Self-evolve runs every 30 minutes on schedule
