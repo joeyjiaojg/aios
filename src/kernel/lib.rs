@@ -5,6 +5,7 @@
 // Prompt: Create kernel library root module exporting core functionality.
 
 #![no_std]
+#![no_main]
 #![feature(abi_x86_interrupt)]
 #![feature(asm_experimental_arch)]
 #![allow(unused_features)]
@@ -43,3 +44,6 @@ pub mod syscalls;
 pub mod task;
 pub mod vga;
 pub mod vmm;
+
+// Kernel entry point (called from boot.S after entering 64-bit mode)
+mod kernel_entry;
