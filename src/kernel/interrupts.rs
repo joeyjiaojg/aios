@@ -24,7 +24,13 @@ pub static TIMER_TICK: AtomicBool = AtomicBool::new(false);
 
 pub fn init() {
     // # Safety
-    // This runs once before interrupts are enabled. No concurrent access is possible.
+    // `IDT` is a `static mut` which normally risks aliased mutable references.
+    // This is safe here because:
+    //   1. `init()` runs exactly once during single-threaded boot, before
+    //      interrupts are enabled (no concurrent access is possible).
+    //   2. After `IDT.load()` the IDT is only read by the CPU's interrupt
+    //      dispatch mechanism, never written again — so no aliasing occurs
+    //      at runtime.
     unsafe {
         IDT.breakpoint.set_handler_fn(breakpoint_handler);
         IDT.double_fault.set_handler_fn(double_fault_handler);

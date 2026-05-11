@@ -1,4 +1,9 @@
-/* AIOS Linker Script for x86_64 multiboot2 kernel */
+/* AIOS Linker Script for x86_64 multiboot2 kernel
+ *
+ * Model: claude-sonnet-4-6
+ * Tool: claude-code
+ * Prompt: Linker script placing multiboot2 header first, loading at 1 MiB.
+ */
 
 ENTRY(_start)
 

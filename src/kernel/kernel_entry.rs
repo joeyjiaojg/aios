@@ -1,6 +1,6 @@
 // AIOS Kernel Entry Point
 //
-// Model: Claude Sonnet 4.6
+// Model: claude-sonnet-4-6
 // Tool: claude-code
 // Prompt: Fix multiboot2 kernel_main signature and early serial init for boot debugging.
 

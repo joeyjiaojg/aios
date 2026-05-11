@@ -1,6 +1,10 @@
 # AIOS Boot Assembly
 # Multiboot2 header + 32-bit to 64-bit mode transition
 #
+# Model: claude-sonnet-4-6
+# Tool: claude-code
+# Prompt: Add multiboot2 boot assembly with 32-to-64-bit mode transition.
+#
 # Multiboot2 bootloaders (GRUB) enter here in 32-bit protected mode with:
 #   eax = 0x36D76289 (multiboot2 magic)
 #   ebx = physical address of multiboot2 info structure
