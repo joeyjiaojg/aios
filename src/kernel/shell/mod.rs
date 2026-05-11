@@ -47,24 +47,28 @@ pub fn run_shell() {
 
         input_len = 0;
         loop {
-            if let Some(byte) = crate::serial::read_byte() {
-                match byte {
-                    b'\r' | b'\n' => {
-                        crate::serial::write_str("\r\n");
-                        break;
+            match crate::serial::read_byte() {
+                Some(b'\r') | Some(b'\n') => {
+                    crate::serial::write_str("\r\n");
+                    break;
+                }
+                Some(0x7F) | Some(0x08) => {
+                    if input_len > 0 {
+                        input_len -= 1;
+                        crate::serial::write_str("\x08 \x08");
                     }
-                    0x7F | 0x08 => {
-                        if input_len > 0 {
-                            input_len -= 1;
-                            crate::serial::write_str("\x08 \x08");
-                        }
-                    }
-                    b if (0x20..0x7F).contains(&b) && input_len < MAX_INPUT_LEN - 1 => {
-                        input_buf[input_len] = b;
-                        input_len += 1;
-                        crate::serial::write_byte(b);
-                    }
-                    _ => {}
+                }
+                Some(b) if (0x20..0x7F).contains(&b) && input_len < MAX_INPUT_LEN - 1 => {
+                    input_buf[input_len] = b;
+                    input_len += 1;
+                    crate::serial::write_byte(b);
+                }
+                Some(_) => {}
+                None => {
+                    // No byte ready — halt until the next interrupt wakes us.
+                    // # Safety
+                    // HLT with interrupts enabled is safe in the idle wait path.
+                    unsafe { core::arch::asm!("hlt") };
                 }
             }
         }

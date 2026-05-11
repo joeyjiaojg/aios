@@ -137,9 +137,7 @@ pub fn ls(args: &[&str]) -> Result<(), &'static str> {
     let path_hash = simple_hash_str(path);
     let ramdisk = RAMDISK.lock();
 
-    if long_format {
-        crate::serial::write_str("total 1\r\n");
-    }
+    let mut found = false;
 
     for i in 0..16 {
         let ino = ((path_hash + i) % 127) as u32;
@@ -147,20 +145,29 @@ pub fn ls(args: &[&str]) -> Result<(), &'static str> {
         let bytes_read = ramdisk.read(ino, 0, &mut entry_buf).unwrap_or(0);
 
         if bytes_read > 0 && entry_buf[0] != 0 && (show_hidden || entry_buf[0] != b'.') {
+            if !found && long_format {
+                crate::serial::write_str("total 1\r\n");
+            }
+            found = true;
             let name_len = bytes_read.min(14);
             for &byte in entry_buf.iter().take(name_len) {
                 if byte != 0 {
                     crate::serial::write_byte(byte);
                 }
             }
-            if !long_format {
-                crate::serial::write_byte(b' ');
+            if long_format {
+                crate::serial::write_str("\r\n");
+            } else {
+                crate::serial::write_str("  ");
             }
-            crate::serial::write_str("  ");
         }
     }
 
-    crate::serial::write_str("\r\n");
+    if !found {
+        crate::serial::write_str("(empty)\r\n");
+    } else if !long_format {
+        crate::serial::write_str("\r\n");
+    }
     Ok(())
 }
 
