@@ -1,9 +1,9 @@
 // AIOS ELF Loader
 //
-// Model: opencode/minimax-m2.5-free
-// Tool: opencode
-// Prompt: Implement ELF loader for AIOS x86_64 kernel in Rust no_std. Parse ELF64 headers,
-//         load PT_LOAD segments, set up user stack with argc/argv, transition to user mode via iretq.
+// Model: claude-sonnet-4-6
+// Tool: claude-code
+// Prompt: Add user page-table mapping for ELF segments and TSS stack setup before iretq;
+//         export p2_table and boot_stack_top from boot.S for use here.
 
 use crate::memory::FrameAllocator;
 use x86_64::structures::gdt::SegmentSelector;
@@ -18,6 +18,46 @@ const PF_W: u32 = 2;
 const PF_R: u32 = 4;
 
 const PT_LOAD: u32 = 1;
+const P2_ENTRY_SIZE: u64 = 2 * 1024 * 1024; // 2 MiB per P2 entry
+const P2_ENTRIES: usize = 512;
+// P2 entry flags: PRESENT | WRITE | HUGE | USER_ACCESSIBLE
+const P2_FLAGS_USER: u64 = 0x87;
+
+// Symbols exported from boot.S
+extern "C" {
+    static mut p2_table: [u64; P2_ENTRIES];
+    static boot_stack_top: u8;
+}
+
+/// Mark the 2 MiB P2 entries that cover [vaddr, vaddr+memsz) as user-accessible.
+/// The boot page tables use 2 MiB huge pages for the first 1 GiB (identity mapped).
+/// This adds the USER_ACCESSIBLE flag (bit 2) so ring-3 code can access those pages.
+///
+/// # Safety
+/// Modifies the live boot page tables. Safe to call before the first iretq to ring 3
+/// because no user-mode code is executing yet. `p2_table` lives in BSS at a known
+/// address; accessing it as a `[u64; 512]` via the exported symbol is valid.
+pub fn map_user_segment(vaddr: u64, memsz: u64) {
+    let start_entry = (vaddr / P2_ENTRY_SIZE) as usize;
+    let end_entry = ((vaddr + memsz + P2_ENTRY_SIZE - 1) / P2_ENTRY_SIZE) as usize;
+    let end_entry = end_entry.min(P2_ENTRIES);
+    // # Safety
+    // p2_table is the boot-time PD (page directory) exported from boot.S.
+    // Entries cover the first 1 GiB identity-mapped. We only set the USER bit
+    // on entries that correspond to the ELF segment virtual range. Called once
+    // from load_and_map, before interrupts route to ring-3 code.
+    unsafe {
+        for i in start_entry..end_entry {
+            p2_table[i] = (i as u64 * P2_ENTRY_SIZE) | P2_FLAGS_USER;
+        }
+        // Flush TLB by reloading CR3.
+        core::arch::asm!(
+            "mov rax, cr3",
+            "mov cr3, rax",
+            out("rax") _,
+        );
+    }
+}
 
 const USER_STACK_SIZE: usize = 4096 * 8;
 const MAX_PHDR: usize = 32;
@@ -238,7 +278,15 @@ impl ElfLoader {
         phys_base: *mut u8,
     ) -> Result<LoadedElf, &'static str> {
         self.parse_phdrs(data)?;
-        self.load_segments(data, allocator, phys_base)
+        let loaded = self.load_segments(data, allocator, phys_base)?;
+        // Mark each PT_LOAD segment's virtual address range as user-accessible
+        // in the boot page tables so ring-3 code can access its own pages.
+        for i in 0..self.phdr_count {
+            if self.phdrs[i].p_type == PT_LOAD && self.phdrs[i].p_memsz > 0 {
+                map_user_segment(self.phdrs[i].p_vaddr, self.phdrs[i].p_memsz);
+            }
+        }
+        Ok(loaded)
     }
 
     #[allow(dead_code)]
@@ -383,23 +431,43 @@ pub fn start_user_program(
     user_cs: SegmentSelector,
     user_ss: SegmentSelector,
 ) -> ! {
+    // Set up the TSS ring-0 stack so that any ring-3 → ring-0 transition
+    // (syscall int 0x80, page fault, etc.) has a valid kernel stack to switch to.
     // # Safety
-    // constructs a valid iretq frame to transition from ring 0 to ring 3.
-    // The stack pointer, entry point, and segment selectors are valid.
+    // boot_stack_top is a BSS symbol exported from boot.S. It is the top of the
+    // 64 KiB boot stack, which is valid kernel stack memory for the lifetime of
+    // the kernel. setup_tss_stack() writes this address into TSS.privilege_stack_table[0].
+    unsafe {
+        crate::gdt::setup_tss_stack(x86_64::VirtAddr::new(&boot_stack_top as *const u8 as u64));
+    }
+
+    // # Safety
+    // Constructs a valid iretq frame to transition from ring 0 to ring 3.
+    // The iretq frame layout on the stack (bottom-to-top as pushed):
+    //   [rsp+0]  SS  | 3  (user data selector, RPL=3)
+    //   [rsp+8]  RSP       (user stack pointer)
+    //   [rsp+16] RFLAGS    (IF=1, reserved bit 1 set)
+    //   [rsp+24] CS  | 3  (user code selector, RPL=3)
+    //   [rsp+32] RIP       (user entry point)
+    // We push these in reverse order (highest address first) and then set RSP
+    // to the bottom of the frame so iretq pops them in the correct order.
+    // The user_cs and user_ss selectors come from the GDT which is already loaded.
     unsafe {
         let stack_ptr = context.stack_ptr as *mut u64;
         let ss_val = (user_ss.0 as u64) | 3;
         let rsp_val = context.stack_ptr;
-        let rflags_val = 0x202u64;
+        let rflags_val = 0x202u64; // IF=1, reserved bit 1
         let cs_val = (user_cs.0 as u64) | 3;
         let rip_val = context.entry;
 
+        // Build iretq frame 5 slots below current stack pointer.
+        // Order: SS, RSP, RFLAGS, CS, RIP (iretq pops RIP first at lowest address)
         let frame = stack_ptr.sub(5);
-        *frame.add(0) = ss_val;
-        *frame.add(1) = rsp_val;
+        *frame.add(4) = ss_val;
+        *frame.add(3) = rsp_val;
         *frame.add(2) = rflags_val;
-        *frame.add(3) = cs_val;
-        *frame.add(4) = rip_val;
+        *frame.add(1) = cs_val;
+        *frame.add(0) = rip_val;
 
         core::arch::asm!(
             "mov rsp, {0}",

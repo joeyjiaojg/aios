@@ -44,13 +44,17 @@ gdt64_ptr:
 # ── BSS: page tables and boot stack ───────────────────────────────────────────
 .section .bss
 .align 4096
+.global p4_table
 p4_table:   .skip 4096   # PML4
+.global p3_table
 p3_table:   .skip 4096   # PDPT
+.global p2_table
 p2_table:   .skip 4096   # PD (2 MiB pages)
 
 .align 16
 boot_stack_bottom:
     .skip 65536           # 64 KiB boot stack
+.global boot_stack_top
 boot_stack_top:
 
 # ── 32-bit entry point ────────────────────────────────────────────────────────

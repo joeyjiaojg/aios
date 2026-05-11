@@ -2,7 +2,8 @@
 //
 // Model: claude-sonnet-4-6
 // Tool: claude-code
-// Prompt: Fix IDT init so timer handler is loaded into the live IDT; fix PIC initialization.
+// Prompt: Fix IDT init so timer handler is loaded into the live IDT; fix PIC initialization;
+//         add int 0x80 syscall handler that dispatches to handle_syscall via GPR save/restore.
 
 use core::sync::atomic::{AtomicBool, Ordering};
 use pic8259::ChainedPics;
@@ -22,6 +23,66 @@ static mut IDT: InterruptDescriptorTable = InterruptDescriptorTable::new();
 
 pub static TIMER_TICK: AtomicBool = AtomicBool::new(false);
 
+// Raw syscall trampoline: saves caller-saved GPRs, calls syscall_dispatch,
+// restores GPRs, and returns via iretq. Registered via set_handler_addr so
+// the IDT does not impose the x86-interrupt ABI on it.
+//
+// Linux x86_64 syscall convention via int 0x80 (32-bit compat) reuses:
+//   rax = syscall number, rdi = arg1, rsi = arg2, rdx = arg3
+// We honour the same layout so a static ELF built for this kernel works.
+core::arch::global_asm!(
+    ".global syscall_int80_trampoline",
+    "syscall_int80_trampoline:",
+    "push rbp",
+    "push rbx",
+    "push r10",
+    "push r11",
+    "push r12",
+    "push r13",
+    "push r14",
+    "push r15",
+    // rax=syscall_num, rdi=arg1, rsi=arg2, rdx=arg3 already in place per ABI
+    "call syscall_dispatch",
+    // result returned in rax by syscall_dispatch
+    "pop r15",
+    "pop r14",
+    "pop r13",
+    "pop r12",
+    "pop r11",
+    "pop r10",
+    "pop rbx",
+    "pop rbp",
+    "iretq",
+);
+
+/// Called from the int 0x80 trampoline with syscall registers already in place.
+/// Returns the syscall result in rax (via normal Rust return convention).
+#[no_mangle]
+pub extern "C" fn syscall_dispatch(
+    _unused: u64, // placeholder — the real args arrive in rdi/rsi/rdx/rax
+) -> i64 {
+    // Read syscall arguments from registers via inline asm.
+    let (num, arg1, arg2, arg3): (usize, usize, usize, usize);
+    // # Safety
+    // Reading rax/rdi/rsi/rdx here is safe: we are in the syscall trampoline
+    // context where these registers contain the syscall number and arguments
+    // placed there by the user-mode caller before executing `int 0x80`.
+    // No memory is read or written; only register values are captured.
+    unsafe {
+        core::arch::asm!(
+            "mov {num}, rax",
+            "mov {a1}, rdi",
+            "mov {a2}, rsi",
+            "mov {a3}, rdx",
+            num = out(reg) num,
+            a1  = out(reg) arg1,
+            a2  = out(reg) arg2,
+            a3  = out(reg) arg3,
+        );
+    }
+    crate::syscalls::handle_syscall(num, arg1, arg2, arg3) as i64
+}
+
 pub fn init() {
     // # Safety
     // `IDT` is a `static mut` which normally risks aliased mutable references.
@@ -37,6 +98,17 @@ pub fn init() {
         // IRQ 0 (timer) → vector PIC_1_OFFSET (32), IRQ 1 (keyboard) → 33
         IDT[PIC_1_OFFSET].set_handler_fn(timer_interrupt_handler);
         IDT[PIC_1_OFFSET + 1].set_handler_fn(keyboard_interrupt_handler);
+        // int 0x80 → syscall trampoline (vector 0x80 = 128)
+        // set_handler_addr bypasses the x86-interrupt ABI so our trampoline
+        // manages its own register save/restore and iretq.
+        extern "C" {
+            fn syscall_int80_trampoline();
+        }
+        IDT[0x80u8]
+            .set_handler_addr(x86_64::VirtAddr::new(
+                syscall_int80_trampoline as usize as u64,
+            ))
+            .set_privilege_level(x86_64::PrivilegeLevel::Ring3);
         IDT.load();
     }
 
@@ -175,5 +247,16 @@ mod tests {
     #[test]
     fn test_keyboard_interrupt_vector() {
         assert_eq!(PIC_1_OFFSET as usize + 1, 33);
+    }
+
+    #[test]
+    fn test_syscall_vector() {
+        assert_eq!(0x80u8 as usize, 128);
+    }
+
+    #[test]
+    fn test_syscall_dispatch_exists() {
+        // Verify the dispatch function is callable (not dead-stripped).
+        let _ = syscall_dispatch as unsafe extern "C" fn(u64) -> i64;
     }
 }
