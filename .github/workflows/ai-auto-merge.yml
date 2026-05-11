@@ -126,20 +126,44 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            // Double-check approval status before merging
             const approvalStatus = process.env.APPROVAL_STATUS;
             if (approvalStatus !== 'true') {
               console.log('Not auto-merging: approval status is not true');
               return;
             }
-            
+
             console.log('Auto-merging PR after approval...');
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+            });
+
+            // Extract "Closes #N" references from PR body to close them after merge
+            const body = pr.data.body || '';
+            const closes = [...body.matchAll(/(?:closes?|fixes?|resolves?)\s+#(\d+)/gi)]
+              .map(m => parseInt(m[1]));
+
             await github.rest.pulls.merge({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              pull_number: context.issue.number,
-              merge_method: 'merge'
+              pull_number: context.payload.pull_request.number,
+              merge_method: 'merge',
+              commit_message: closes.length
+                ? closes.map(n => `Closes #${n}`).join('\n')
+                : undefined,
             });
+
+            // Explicitly close referenced issues (API merge doesn't process PR body keywords)
+            for (const issue of closes) {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue,
+                state: 'closed',
+              });
+              console.log(`Closed issue #${issue}`);
+            }
         env:
           APPROVAL_STATUS: ${{ steps.review.outputs.approved }}
 
