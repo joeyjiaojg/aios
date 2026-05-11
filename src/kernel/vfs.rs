@@ -26,7 +26,7 @@ pub enum VfsNodeType {
 }
 
 /// VFS node structure
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct VfsNode {
     id: u64,
     name: [u8; MAX_NAME_LEN],
@@ -106,7 +106,7 @@ impl VfsNode {
 }
 
 /// Mount point structure
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 struct MountPoint {
     source: u64,
     target: u64,
@@ -437,36 +437,41 @@ impl VfsError {
 }
 
 /// Global VFS manager
-static VFS_MANAGER: Mutex<VfsManager> = Mutex::new(VfsManager::new());
+static VFS_MANAGER: Mutex<Option<VfsManager>> = Mutex::new(None);
+
+/// Initialize VFS
+pub fn init() {
+    *VFS_MANAGER.lock() = Some(VfsManager::new());
+}
 
 /// Get a reference to the global VFS manager
-pub fn vfs_manager() -> &'static Mutex<VfsManager> {
+pub fn vfs_manager() -> &'static Mutex<Option<VfsManager>> {
     &VFS_MANAGER
 }
 
-/// Mount a filesystem
+///Mount a filesystem
 pub fn mount(source: u64, target: u64, flags: u32) -> Result<(), VfsError> {
-    VFS_MANAGER.lock().mount(source, target, flags)
+    VFS_MANAGER.lock().as_mut().ok_or(VfsError::InvalidPath)?.mount(source, target, flags)
 }
 
 /// Unmount a filesystem
 pub fn unmount(target: u64) -> Result<(), VfsError> {
-    VFS_MANAGER.lock().unmount(target)
+    VFS_MANAGER.lock().as_mut().ok_or(VfsError::InvalidPath)?.unmount(target)
 }
 
 /// Lookup a node by path
 pub fn lookup(path: &[u8]) -> Result<VfsNode, VfsError> {
-    VFS_MANAGER.lock().lookup(path)
+    VFS_MANAGER.lock().as_ref().ok_or(VfsError::InvalidPath)?.lookup(path)
 }
 
 /// Read from a node
 pub fn read(id: u64, offset: u64, buffer: &mut [u8]) -> Result<usize, VfsError> {
-    VFS_MANAGER.lock().read(id, offset, buffer)
+    VFS_MANAGER.lock().as_ref().ok_or(VfsError::InvalidPath)?.read(id, offset, buffer)
 }
 
 /// Write to a node
 pub fn write(id: u64, offset: u64, data: &[u8]) -> Result<usize, VfsError> {
-    VFS_MANAGER.lock().write(id, offset, data)
+    VFS_MANAGER.lock().as_mut().ok_or(VfsError::InvalidPath)?.write(id, offset, data)
 }
 
 #[cfg(test)]

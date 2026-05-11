@@ -42,7 +42,9 @@ pub mod ramdisk;
 pub mod shell;
 pub mod syscalls;
 pub mod task;
+pub mod user_init;
 pub mod vga;
+pub mod vfs;
 pub mod vmm;
 
 // Kernel entry point (called from boot.S after entering 64-bit mode)

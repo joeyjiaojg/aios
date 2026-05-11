@@ -290,11 +290,70 @@ pub fn help() -> Result<(), &'static str> {
     Ok(())
 }
 
-pub fn exec_cmd(cmd: &str, _args: &[&str]) -> Result<(), &'static str> {
-    crate::serial::write_str("Executing: ");
-    crate::serial::write_str(cmd);
+pub fn exec_cmd(_cmd: &str, args: &[&str]) -> Result<(), &'static str> {
+    // args[0] contains the program path to execute
+    if args.is_empty() {
+        crate::serial::write_str("exec: missing program path\r\n");
+        return Err("Missing program path");
+    }
+
+    let path = args[0];
+    crate::serial::write_str("exec: loading ");
+    crate::serial::write_str(path);
     crate::serial::write_str("\r\n");
-    Ok(())
+
+    // For "/init", use the embedded USER_INIT_ELF; for other paths, try ramdisk.
+    let elf_data = if path == "/init" {
+        crate::user_init::USER_INIT_ELF
+    } else {
+        crate::serial::write_str("exec: only /init is supported in this POC\r\n");
+        return Err("Only /init is supported");
+    };
+
+    // Get the GDT selectors for user-mode segments
+    let selectors = crate::gdt::get_selectors().ok_or("GDT selectors not initialized")?;
+
+    // Set up a minimal frame allocator for ELF loading
+    // We use a static memory region at 0x500000 (5 MiB) for user program pages.
+    const USER_MEM_BASE: usize = 0x500000;
+    const USER_MEM_SIZE: usize = 4096 * 256; // 1 MiB
+    const MAX_FRAMES: usize = 256;
+    let mut allocator = crate::memory::FrameAllocator::new();
+    allocator.init(USER_MEM_BASE as *mut u8, USER_MEM_SIZE, MAX_FRAMES);
+
+    // Set up user context (loads ELF, prepares stack, argc/argv).
+    // We pass "/init" as argv[0].
+    let args_bytes: &[&[u8]] = &[path.as_bytes()];
+    let context = crate::elf::setup_user_context(
+        elf_data,
+        &mut allocator,
+        USER_MEM_BASE as *mut u8,
+        args_bytes,
+    )
+    .map_err(|e| {
+        crate::serial::write_str("exec: ELF setup failed: ");
+        crate::serial::write_str(e);
+        crate::serial::write_str("\r\n");
+        e
+    })?;
+
+    crate::serial::write_str("exec: transitioning to ring 3 at entry ");
+    // Print entry point in hex
+    let entry_hex = context.entry;
+    crate::serial::write_str("0x");
+    for i in (0..16).rev() {
+        let nibble = ((entry_hex >> (i * 4)) & 0xF) as u8;
+        let ch = if nibble < 10 {
+            b'0' + nibble
+        } else {
+            b'a' + (nibble - 10)
+        };
+        crate::serial::write_byte(ch);
+    }
+    crate::serial::write_str("\r\n");
+
+    // Transition to ring 3 — does not return.
+    crate::elf::start_user_program(&context, selectors.user_code_selector, selectors.user_data_selector);
 }
 
 pub fn execute_builtin(cmd: &str, args: &[&str]) -> bool {
@@ -325,7 +384,7 @@ pub fn execute_builtin(cmd: &str, args: &[&str]) -> bool {
         }
         "fg" => crate::shell::job_control::fg(args_slice).is_ok(),
         "bg" => crate::shell::job_control::bg(args_slice).is_ok(),
-        "exec" => exec_cmd(cmd, args_slice).is_ok(),
+        "exec" => exec_cmd(cmd, args).is_ok(),
         _ => false,
     }
 }
