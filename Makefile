@@ -114,6 +114,7 @@ ai-review:
 check: fmt clippy test-unit
 
 clean:
+	sudo chown -R $(shell whoami):users target build
 	rm -rf $(BUILD)
 	rm -rf target
 	$(CARGO) clean
