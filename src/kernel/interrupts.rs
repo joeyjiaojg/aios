@@ -315,9 +315,9 @@ extern "x86-interrupt" fn stack_segment_fault_handler(
 fn print_hex(val: u64) {
     let hex_chars = b"0123456789abcdef";
     let mut buf = [0u8; 16];
-    for i in 0..16 {
+    for (i, item) in buf.iter_mut().enumerate() {
         let nibble = ((val >> (60 - i * 4)) & 0xF) as usize;
-        buf[i] = hex_chars[nibble];
+        *item = hex_chars[nibble];
     }
     for &byte in &buf {
         crate::serial::write_byte(byte);
