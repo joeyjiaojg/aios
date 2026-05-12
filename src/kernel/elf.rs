@@ -443,36 +443,34 @@ pub fn start_user_program(
 
     // # Safety
     // Constructs a valid iretq frame to transition from ring 0 to ring 3.
-    // The iretq frame layout on the stack (bottom-to-top as pushed):
-    //   [rsp+0]  SS  | 3  (user data selector, RPL=3)
-    //   [rsp+8]  RSP       (user stack pointer)
-    //   [rsp+16] RFLAGS    (IF=1, reserved bit 1 set)
-    //   [rsp+24] CS  | 3  (user code selector, RPL=3)
-    //   [rsp+32] RIP       (user entry point)
-    // We push these in reverse order (highest address first) and then set RSP
-    // to the bottom of the frame so iretq pops them in the correct order.
-    // The user_cs and user_ss selectors come from the GDT which is already loaded.
+    // The iretq frame is pushed onto the CURRENT (kernel) stack, not user stack.
+    // iretq pops these 5 values in order:
+    //   RIP (user entry point)
+    //   CS  (user code selector with RPL=3)
+    //   RFLAGS (IF=1, reserved bit 1)
+    //   RSP (user stack pointer)
+    //   SS  (user data selector with RPL=3)
     unsafe {
-        let stack_ptr = context.stack_ptr as *mut u64;
         let ss_val = (user_ss.0 as u64) | 3;
         let rsp_val = context.stack_ptr;
         let rflags_val = 0x202u64; // IF=1, reserved bit 1
         let cs_val = (user_cs.0 as u64) | 3;
         let rip_val = context.entry;
 
-        // Build iretq frame 5 slots below current stack pointer.
-        // Order: SS, RSP, RFLAGS, CS, RIP (iretq pops RIP first at lowest address)
-        let frame = stack_ptr.sub(5);
-        *frame.add(4) = ss_val;
-        *frame.add(3) = rsp_val;
-        *frame.add(2) = rflags_val;
-        *frame.add(1) = cs_val;
-        *frame.add(0) = rip_val;
-
+        // Push iretq frame onto kernel stack (current RSP).
+        // Push in reverse order so iretq pops RIP first.
         core::arch::asm!(
-            "mov rsp, {0}",
+            "push {ss}",
+            "push {rsp}",
+            "push {rflags}",
+            "push {cs}",
+            "push {rip}",
             "iretq",
-            in(reg) frame as u64,
+            ss = in(reg) ss_val,
+            rsp = in(reg) rsp_val,
+            rflags = in(reg) rflags_val,
+            cs = in(reg) cs_val,
+            rip = in(reg) rip_val,
             options(noreturn)
         );
     }

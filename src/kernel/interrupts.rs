@@ -80,6 +80,16 @@ pub extern "C" fn syscall_dispatch(
             a3  = out(reg) arg3,
         );
     }
+    crate::serial::write_str("[syscall] num=");
+    // Print syscall number
+    let num_str = match num {
+        0 => "read",
+        1 => "write",
+        60 => "exit",
+        _ => "unknown",
+    };
+    crate::serial::write_str(num_str);
+    crate::serial::write_str("\r\n");
     crate::syscalls::handle_syscall(num, arg1, arg2, arg3) as i64
 }
 
