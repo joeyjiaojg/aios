@@ -17,7 +17,33 @@ extern crate spin;
 use core::panic::PanicInfo;
 
 #[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
+fn panic(info: &PanicInfo) -> ! {
+    serial::write_str("\r\n[PANIC] ");
+    if let Some(location) = info.location() {
+        serial::write_str("at ");
+        serial::write_str(location.file());
+        serial::write_str(":");
+        // Print line number
+        let line = location.line();
+        let mut buf = [0u8; 10];
+        let mut n = line;
+        let mut i = 0;
+        if n == 0 {
+            buf[0] = b'0';
+            i = 1;
+        } else {
+            while n > 0 {
+                buf[i] = b'0' + (n % 10) as u8;
+                n /= 10;
+                i += 1;
+            }
+        }
+        while i > 0 {
+            i -= 1;
+            serial::write_byte(buf[i]);
+        }
+    }
+    serial::write_str("\r\n");
     loop {}
 }
 

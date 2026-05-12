@@ -328,16 +328,22 @@ impl UserStack {
     pub fn new(allocator: &mut FrameAllocator, phys_base: *mut u8) -> Result<Self, &'static str> {
         let pages = USER_STACK_SIZE / 4096;
 
-        for _ in 0..pages {
-            allocator
+        // Allocate physical frames for the stack
+        let mut frame_addrs = [0usize; 8]; // USER_STACK_SIZE is 8 pages
+        for i in 0..pages {
+            frame_addrs[i] = allocator
                 .alloc_frame_addr(phys_base)
-                .ok_or("Failed to allocate stack frame")?;
+                .ok_or("Failed to allocate stack frame")? as usize;
         }
 
-        let stack_top = 0x0000_7FFF_FFFF_F000u64;
+        // Use the first allocated frame's physical address as the stack location
+        // Since we have identity mapping in the first 1GB, physical == virtual
+        let stack_base_phys = frame_addrs[0];
+        let stack_top = stack_base_phys + USER_STACK_SIZE;
         let sp = stack_top as *mut u8;
+
         Ok(Self {
-            base: (stack_top - USER_STACK_SIZE as u64 + 4096) as *mut u8,
+            base: stack_base_phys as *mut u8,
             size: USER_STACK_SIZE,
             sp,
         })
@@ -409,11 +415,13 @@ pub fn setup_user_context(
 
     let mut arg_addrs = [0u64; 8];
     let argc = args.len().min(8);
+    crate::serial::write_str("[elf] setup_user_context: pushing args\r\n");
     for i in (0..argc).rev() {
         let ptr = user_stack.push_arg(args[i])?;
         arg_addrs[i] = ptr as u64;
     }
 
+    crate::serial::write_str("[elf] setup_user_context: pushing arg pointers\r\n");
     for arg_addr in arg_addrs.iter().take(argc) {
         user_stack.push_u64(*arg_addr).ok();
     }
@@ -423,6 +431,7 @@ pub fn setup_user_context(
 
     user_stack.push_u64(0).ok();
 
+    crate::serial::write_str("[elf] setup_user_context: done!\r\n");
     Ok(UserContext {
         entry: loaded.entry,
         stack_ptr: user_stack.sp(),
