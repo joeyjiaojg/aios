@@ -38,9 +38,27 @@ extern "C" {
 /// because no user-mode code is executing yet. `p2_table` lives in BSS at a known
 /// address; accessing it as a `[u64; 512]` via the exported symbol is valid.
 pub fn map_user_segment(vaddr: u64, memsz: u64) {
+    crate::serial::write_str("[elf] map_user_segment: vaddr=0x");
+    for i in (0..16).rev() {
+        let nibble = ((vaddr >> (i * 4)) & 0xF) as u8;
+        crate::serial::write_byte(if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) });
+    }
+    crate::serial::write_str(" memsz=0x");
+    for i in (0..16).rev() {
+        let nibble = ((memsz >> (i * 4)) & 0xF) as u8;
+        crate::serial::write_byte(if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) });
+    }
+    crate::serial::write_str("\r\n");
+
     let start_entry = (vaddr / P2_ENTRY_SIZE) as usize;
     let end_entry = ((vaddr + memsz + P2_ENTRY_SIZE - 1) / P2_ENTRY_SIZE) as usize;
     let end_entry = end_entry.min(P2_ENTRIES);
+    crate::serial::write_str("[elf] map_user_segment: P2 entries ");
+    crate::serial::write_byte(b'0' + (start_entry as u8));
+    crate::serial::write_str(" to ");
+    crate::serial::write_byte(b'0' + (end_entry as u8));
+    crate::serial::write_str("\r\n");
+
     // # Safety
     // p2_table is the boot-time PD (page directory) exported from boot.S.
     // Entries cover the first 1 GiB identity-mapped. We only set the USER bit
@@ -48,6 +66,9 @@ pub fn map_user_segment(vaddr: u64, memsz: u64) {
     // from load_and_map, before interrupts route to ring-3 code.
     unsafe {
         for i in start_entry..end_entry {
+            crate::serial::write_str("[elf] map_user_segment: marking P2[");
+            crate::serial::write_byte(b'0' + (i as u8));
+            crate::serial::write_str("] as user-accessible\r\n");
             p2_table[i] = (i as u64 * P2_ENTRY_SIZE) | P2_FLAGS_USER;
         }
         // Flush TLB by reloading CR3.
@@ -57,6 +78,7 @@ pub fn map_user_segment(vaddr: u64, memsz: u64) {
             out("rax") _,
         );
     }
+    crate::serial::write_str("[elf] map_user_segment: done\r\n");
 }
 
 const USER_STACK_SIZE: usize = 4096 * 8;
