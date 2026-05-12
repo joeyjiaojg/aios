@@ -4,6 +4,8 @@
 // Tool: opencode
 // Prompt: Built-in shell commands for AIOS - cd, pwd, exit, echo, ls, mkdir, rm, cat, set, unset, help, exec.
 
+#![allow(clippy::manual_inspect)]
+
 use crate::process;
 use crate::ramdisk::RAMDISK;
 use crate::shell::{get_current_dir_str, set_current_dir};

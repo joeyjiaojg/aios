@@ -129,7 +129,7 @@ pub fn init() {
         }
         IDT[0x80u8]
             .set_handler_addr(x86_64::VirtAddr::new(
-                syscall_int80_trampoline as usize as u64,
+                syscall_int80_trampoline as *const () as usize as u64,
             ))
             .set_privilege_level(x86_64::PrivilegeLevel::Ring3);
         IDT.load();
