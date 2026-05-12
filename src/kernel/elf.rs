@@ -435,6 +435,11 @@ pub fn setup_user_context(
     let mut user_stack = UserStack::new(allocator, phys_base)?;
     crate::serial::write_str("[elf] setup_user_context: user stack created\r\n");
 
+    // Mark the user stack region as user-accessible
+    crate::serial::write_str("[elf] setup_user_context: marking stack as user-accessible\r\n");
+    map_user_segment(user_stack.base as u64, user_stack.size as u64);
+    crate::serial::write_str("[elf] setup_user_context: stack marked user-accessible\r\n");
+
     let mut arg_addrs = [0u64; 8];
     let argc = args.len().min(8);
     crate::serial::write_str("[elf] setup_user_context: pushing args\r\n");
@@ -496,7 +501,23 @@ pub fn start_user_program(
         let cs_val = (user_cs.0 as u64) | 3;
         let rip_val = context.entry;
 
+        crate::serial::write_str("[elf] iretq frame dump:\r\n");
+        crate::serial::write_str("  RIP: 0x");
+        print_hex_u64(rip_val);
+        crate::serial::write_str("\r\n  CS: 0x");
+        print_hex_u64(cs_val);
+        crate::serial::write_str("\r\n  RFLAGS: 0x");
+        print_hex_u64(rflags_val);
+        crate::serial::write_str("\r\n  RSP: 0x");
+        print_hex_u64(rsp_val);
+        crate::serial::write_str("\r\n  SS: 0x");
+        print_hex_u64(ss_val);
+        crate::serial::write_str("\r\n");
         crate::serial::write_str("[elf] start_user_program: executing iretq to ring 3...\r\n");
+        // Disable interrupts before iretq to rule out interrupt-related issues
+        // # Safety
+        // Temporarily disabling interrupts is safe during the ring transition.
+        core::arch::asm!("cli");
         // Push iretq frame onto kernel stack (current RSP).
         // Push in reverse order so iretq pops RIP first.
         core::arch::asm!(
@@ -513,6 +534,18 @@ pub fn start_user_program(
             rip = in(reg) rip_val,
             options(noreturn)
         );
+    }
+}
+
+fn print_hex_u64(val: u64) {
+    let hex_chars = b"0123456789abcdef";
+    let mut buf = [0u8; 16];
+    for i in 0..16 {
+        let nibble = ((val >> (60 - i * 4)) & 0xF) as usize;
+        buf[i] = hex_chars[nibble];
+    }
+    for &byte in &buf {
+        crate::serial::write_byte(byte);
     }
 }
 

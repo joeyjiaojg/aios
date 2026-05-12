@@ -10,21 +10,13 @@
 //   Offset 0x40  Program header    (56 bytes)
 //   Offset 0x78  Code              (loaded at vaddr 0x400078)
 //
-// The code:
-//   mov rax, 1          ; sys_write
-//   mov rdi, 1          ; fd=stdout
-//   lea rsi, [rel msg]  ; buf
-//   mov rdx, 22         ; len
-//   int 0x80
-//   mov rax, 60         ; sys_exit
-//   xor rdi, rdi        ; status=0
-//   int 0x80
-//   msg: db "Hello from userspace!", 10
+// The code (SIMPLIFIED TEST - infinite loop):
+//   jmp $         ; infinite loop (0xEB 0xFE = jmp -2)
 //
 // Entry point: 0x400078  (0x400000 base + 0x78 header offset)
 // p_vaddr:     0x400000
-// p_filesz:    0x78 + code+data = 0xb0  (176 bytes total)
-// p_memsz:     0x1000  (one page, BSS zero-fill)
+// p_filesz:    0x78 + code = 0x7A  (122 bytes total)
+// p_memsz:     0x1000  (one page)
 
 pub const USER_INIT_ELF: &[u8] = &[
     // ── ELF64 header (64 bytes) ─────────────────────────────────────────
@@ -57,63 +49,15 @@ pub const USER_INIT_ELF: &[u8] = &[
     0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00,
     // p_paddr = 0x400000  (same as vaddr for static binary)
     0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00,
-    // p_filesz = 0xB0  (176 bytes: 64 ELF hdr + 56 phdr + 56 code+data)
-    0xB0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    // p_memsz  = 0x1000  (one 4KiB page so BSS extends to page boundary)
+    // p_filesz = 0x7A  (122 bytes: 64 ELF hdr + 56 phdr + 2 code)
+    0x7A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    // p_memsz  = 0x1000  (one 4KiB page)
     0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     // p_align  = 0x1000
     0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     // ── Code (at file offset 0x78 = entry point vaddr 0x400078) ─────────
-    // mov rax, 1
-    0x48, 0xC7, 0xC0, 0x01, 0x00, 0x00, 0x00,
-    // mov rdi, 1
-    0x48, 0xC7, 0xC7, 0x01, 0x00, 0x00, 0x00,
-    // lea rsi, [rip + msg_offset]   ; msg is 14 bytes ahead (7+7+2+2+2 = 22 instr bytes → label)
-    // instruction: 48 8D 35 <rel32>
-    // After this instruction (at offset 0x78+7+7+7=0x78+21=0x8D), rip=0x40008D+7=0x400094
-    // msg is at 0x400096 (0x78 + 7+7+7+2+2 = 0x78+25 = 0x91... let's compute carefully)
-    // Layout from 0x400078:
-    //  +0  mov rax,1   7 bytes → 0x40007F
-    //  +7  mov rdi,1   7 bytes → 0x400086
-    //  +14 lea rsi,... 7 bytes → 0x40008D  (rip after = 0x40008D+7=0x400094? no, rip after = next instr)
-    //      Actually rip after lea = 0x400085... let me recalc:
-    //      0x400078 + 7 = 0x40007F  (after mov rax,1)
-    //      0x40007F + 7 = 0x400086  (after mov rdi,1)
-    //      0x400086 + 7 = 0x40008D  (after lea rsi, — rip=0x40008D when lea executes, but rip used = next instr addr)
-    //      Wait: RIP-relative lea uses the address of the NEXT instruction as the base.
-    //      lea rsi, [rip+disp32] where rip = 0x40008D
-    //      +0x40008D + 7 = 0x400094  (after mov rdx,22)? no — lea is 7 bytes so next=0x40008D
-    //      lea at 0x400086, 7 bytes: next instr at 0x40008D  → rip=0x40008D after decode
-    //      +0x40008D + disp = msg_vaddr
-    //      msg_vaddr = 0x400078 + 7+7+7+7+2+2 = 0x400078 + 32 = 0x400098? let's just count:
-    //  Instruction sequence from 0x400078:
-    //  [0]  48 C7 C0 01 00 00 00   mov rax,1     (7)  → ends at 0x40007F
-    //  [7]  48 C7 C7 01 00 00 00   mov rdi,1     (7)  → ends at 0x400086
-    //  [14] 48 8D 35 XX XX XX XX   lea rsi,[rip+?] (7) → ends at 0x40008D, rip_after=0x40008D
-    //  [21] 48 C7 C2 16 00 00 00   mov rdx,22    (7)  → ends at 0x400094
-    //  [28] CD 80                  int 0x80      (2)  → ends at 0x400096
-    //  [30] 48 C7 C0 3C 00 00 00   mov rax,60    (7)  → ends at 0x40009D
-    //  [37] 48 31 FF               xor rdi,rdi   (3)  → ends at 0x4000A0
-    //  [40] CD 80                  int 0x80      (2)  → ends at 0x4000A2
-    //  [42] 48 65 6C 6C 6F 20 66 72 6F 6D 20 75 73 65 72 73 70 61 63 65 21 0A  (22 bytes msg)
-    //  msg vaddr = 0x400078 + 42 = 0x4000A2
-    //  rip after lea = 0x40008D
-    //  disp = 0x4000A2 - 0x40008D = 0x15  → disp32 = 0x15000000 (LE)
-    // Wait that's not right: 0x4000A2 - 0x40008D = 0x15.  LE bytes: 15 00 00 00
-    0x48, 0x8D, 0x35, 0x15, 0x00, 0x00, 0x00, // lea rsi, [rip+0x15]  → msg
-    // mov rdx, 22
-    0x48, 0xC7, 0xC2, 0x16, 0x00, 0x00, 0x00,
-    // int 0x80
-    0xCD, 0x80,
-    // mov rax, 60  (sys_exit)
-    0x48, 0xC7, 0xC0, 0x3C, 0x00, 0x00, 0x00,
-    // xor rdi, rdi
-    0x48, 0x31, 0xFF,
-    // int 0x80
-    0xCD, 0x80,
-    // ── Message string at vaddr 0x4000A2 ────────────────────────────────
-    b'H', b'e', b'l', b'l', b'o', b' ', b'f', b'r', b'o', b'm', b' ',
-    b'u', b's', b'e', b'r', b's', b'p', b'a', b'c', b'e', b'!', b'\n',
+    // jmp $  (infinite loop: 0xEB 0xFE means jmp -2)
+    0xEB, 0xFE,
 ];
 
 #[cfg(test)]
@@ -175,19 +119,18 @@ mod tests {
     #[test]
     fn test_user_init_elf_phdr_filesz() {
         let filesz = u64::from_le_bytes(USER_INIT_ELF[96..104].try_into().unwrap());
-        assert_eq!(filesz, 0xB0);
+        assert_eq!(filesz, 0x7A); // Updated for simplified infinite loop
     }
 
     #[test]
     fn test_user_init_elf_total_size() {
-        assert_eq!(USER_INIT_ELF.len(), 0xB0); // exactly filesz bytes
+        assert_eq!(USER_INIT_ELF.len(), 0x7A); // Updated for simplified infinite loop
     }
 
     #[test]
-    fn test_user_init_elf_message_present() {
-        let msg = b"Hello from userspace!\n";
-        // Message starts at offset 0x2A (= 0xB0 - 22)
-        let msg_start = USER_INIT_ELF.len() - 22;
-        assert_eq!(&USER_INIT_ELF[msg_start..], msg);
+    fn test_user_init_elf_infinite_loop_code() {
+        // Check that the code at offset 0x78 is 0xEB 0xFE (jmp $)
+        assert_eq!(USER_INIT_ELF[0x78], 0xEB);
+        assert_eq!(USER_INIT_ELF[0x79], 0xFE);
     }
 }
