@@ -33,6 +33,14 @@ pub static TIMER_TICK: AtomicBool = AtomicBool::new(false);
 core::arch::global_asm!(
     ".global syscall_int80_trampoline",
     "syscall_int80_trampoline:",
+    // DEBUG: Write '*' to COM1 (0x3F8) to signal int 0x80 entry
+    "push rax",
+    "push rdx",
+    "mov al, 0x2A",     // '*' character
+    "mov dx, 0x3F8",    // COM1 port
+    "out dx, al",
+    "pop rdx",
+    "pop rax",
     "push rbp",
     "push rbx",
     "push r10",

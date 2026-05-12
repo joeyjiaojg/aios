@@ -117,11 +117,11 @@ boot_halt:
 # Uses stack (called AFTER BSS is zeroed and stack is set up)
 setup_page_tables:
     movl $p3_table, %eax
-    orl  $0x3, %eax
+    orl  $0x7, %eax          # PRESENT | WRITE | USER
     movl %eax, p4_table
 
     movl $p2_table, %eax
-    orl  $0x3, %eax
+    orl  $0x7, %eax          # PRESENT | WRITE | USER
     movl %eax, p3_table
 
     movl $0, %ecx
