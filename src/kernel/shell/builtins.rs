@@ -302,17 +302,30 @@ pub fn exec_cmd(_cmd: &str, args: &[&str]) -> Result<(), &'static str> {
     crate::serial::write_str(path);
     crate::serial::write_str("\r\n");
 
+    crate::serial::write_str("exec: getting ELF data...\r\n");
     // For "/init", use the embedded USER_INIT_ELF; for other paths, try ramdisk.
     let elf_data = if path == "/init" {
+        crate::serial::write_str("exec: using embedded USER_INIT_ELF\r\n");
         crate::user_init::USER_INIT_ELF
     } else {
         crate::serial::write_str("exec: only /init is supported in this POC\r\n");
         return Err("Only /init is supported");
     };
 
+    crate::serial::write_str("exec: getting GDT selectors...\r\n");
     // Get the GDT selectors for user-mode segments
-    let selectors = crate::gdt::get_selectors().ok_or("GDT selectors not initialized")?;
+    let selectors = match crate::gdt::get_selectors() {
+        Some(s) => {
+            crate::serial::write_str("exec: GDT selectors OK\r\n");
+            s
+        }
+        None => {
+            crate::serial::write_str("exec: ERROR - GDT selectors not initialized!\r\n");
+            return Err("GDT selectors not initialized");
+        }
+    };
 
+    crate::serial::write_str("exec: setting up frame allocator...\r\n");
     // Set up a minimal frame allocator for ELF loading
     // We use a static memory region at 0x500000 (5 MiB) for user program pages.
     const USER_MEM_BASE: usize = 0x500000;
@@ -321,6 +334,7 @@ pub fn exec_cmd(_cmd: &str, args: &[&str]) -> Result<(), &'static str> {
     let mut allocator = crate::memory::FrameAllocator::new();
     allocator.init(USER_MEM_BASE as *mut u8, USER_MEM_SIZE, MAX_FRAMES);
 
+    crate::serial::write_str("exec: calling setup_user_context...\r\n");
     // Set up user context (loads ELF, prepares stack, argc/argv).
     // We pass "/init" as argv[0].
     let args_bytes: &[&[u8]] = &[path.as_bytes()];
@@ -336,6 +350,8 @@ pub fn exec_cmd(_cmd: &str, args: &[&str]) -> Result<(), &'static str> {
         crate::serial::write_str("\r\n");
         e
     })?;
+
+    crate::serial::write_str("exec: ELF setup successful!\r\n");
 
     crate::serial::write_str("exec: entry=0x");
     // Print entry point in hex (simplified)

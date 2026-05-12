@@ -397,10 +397,15 @@ pub fn setup_user_context(
     phys_base: *mut u8,
     args: &[&[u8]],
 ) -> Result<UserContext, &'static str> {
+    crate::serial::write_str("[elf] setup_user_context: creating loader\r\n");
     let mut loader = ElfLoader::new();
+    crate::serial::write_str("[elf] setup_user_context: calling load\r\n");
     let loaded = loader.load(elf_data, allocator, phys_base)?;
+    crate::serial::write_str("[elf] setup_user_context: ELF loaded\r\n");
 
+    crate::serial::write_str("[elf] setup_user_context: creating user stack\r\n");
     let mut user_stack = UserStack::new(allocator, phys_base)?;
+    crate::serial::write_str("[elf] setup_user_context: user stack created\r\n");
 
     let mut arg_addrs = [0u64; 8];
     let argc = args.len().min(8);

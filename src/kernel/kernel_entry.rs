@@ -29,6 +29,13 @@ pub extern "C" fn kernel_main(mbi_ptr: u64) -> ! {
     crate::interrupts::enable_interrupts();
     println!("[aios] Starting shell");
 
+    // Auto-exec /init for testing
+    println!("[aios] Auto-executing /init for testing...");
+    let result = crate::shell::builtins::exec_cmd("exec", &["/init"]);
+    if result.is_err() {
+        println!("[aios] exec /init failed: {:?}", result);
+    }
+
     crate::shell::run_shell();
 
     loop {
