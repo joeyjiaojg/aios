@@ -10,12 +10,18 @@
 //   Offset 0x40  Program header    (56 bytes)
 //   Offset 0x78  Code              (loaded at vaddr 0x400078)
 //
-// The code (SIMPLIFIED TEST - infinite loop):
-//   jmp $         ; infinite loop (0xEB 0xFE = jmp -2)
+// The code (SYSCALL TEST):
+//   mov rax, 1     ; sys_write
+//   mov rdi, 1     ; fd=stdout
+//   mov rsi, 0x4000A0  ; msg address (hardcoded)
+//   mov rdx, 6     ; len
+//   int 0x80
+//   jmp $          ; infinite loop
+//   msg: "Hello\n"
 //
 // Entry point: 0x400078  (0x400000 base + 0x78 header offset)
 // p_vaddr:     0x400000
-// p_filesz:    0x78 + code = 0x7A  (122 bytes total)
+// p_filesz:    0x78 + code+data = 0xA6  (166 bytes total)
 // p_memsz:     0x1000  (one page)
 
 pub const USER_INIT_ELF: &[u8] = &[
@@ -49,15 +55,38 @@ pub const USER_INIT_ELF: &[u8] = &[
     0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00,
     // p_paddr = 0x400000  (same as vaddr for static binary)
     0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00,
-    // p_filesz = 0x7A  (122 bytes: 64 ELF hdr + 56 phdr + 2 code)
-    0x7A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    // p_filesz = 0xA6  (166 bytes: 64 ELF hdr + 56 phdr + 46 code+data)
+    0xA6, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     // p_memsz  = 0x1000  (one 4KiB page)
     0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     // p_align  = 0x1000
     0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     // ── Code (at file offset 0x78 = entry point vaddr 0x400078) ─────────
-    // jmp $  (infinite loop: 0xEB 0xFE means jmp -2)
+    // mov rax, 1 (sys_write)
+    0x48, 0xC7, 0xC0, 0x01, 0x00, 0x00, 0x00,
+    // mov rdi, 1 (stdout)
+    0x48, 0xC7, 0xC7, 0x01, 0x00, 0x00, 0x00,
+    // mov rsi, 0x4000A0 (msg address - 0x78 + 7+7+7+7+2+2 = 0x78+32 = 0xA0? let me calc:
+    //   Code starts at 0x400078
+    //   +0x00: mov rax,1   (7 bytes) ends at 0x40007F
+    //   +0x07: mov rdi,1   (7 bytes) ends at 0x400086
+    //   +0x0E: mov rsi,imm (10 bytes) ends at 0x400090
+    //   +0x18: mov rdx,6   (7 bytes) ends at 0x400097
+    //   +0x1F: int 0x80    (2 bytes) ends at 0x400099
+    //   +0x21: jmp $       (2 bytes) ends at 0x40009B
+    //   +0x23: padding     (5 bytes) to align
+    //   +0x28: msg starts at 0x400078 + 0x28 = 0x4000A0
+    0x48, 0xBE, 0xA0, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00,
+    // mov rdx, 6 (length)
+    0x48, 0xC7, 0xC2, 0x06, 0x00, 0x00, 0x00,
+    // int 0x80
+    0xCD, 0x80,
+    // jmp $ (infinite loop)
     0xEB, 0xFE,
+    // Padding to align message
+    0x90, 0x90, 0x90, 0x90, 0x90,
+    // ── Message string at vaddr 0x4000A0 ────────────────────────────────
+    b'H', b'e', b'l', b'l', b'o', b'\n',
 ];
 
 #[cfg(test)]
@@ -119,18 +148,20 @@ mod tests {
     #[test]
     fn test_user_init_elf_phdr_filesz() {
         let filesz = u64::from_le_bytes(USER_INIT_ELF[96..104].try_into().unwrap());
-        assert_eq!(filesz, 0x7A); // Updated for simplified infinite loop
+        assert_eq!(filesz, 0xA6);
     }
 
     #[test]
     fn test_user_init_elf_total_size() {
-        assert_eq!(USER_INIT_ELF.len(), 0x7A); // Updated for simplified infinite loop
+        assert_eq!(USER_INIT_ELF.len(), 0xA6);
     }
 
     #[test]
-    fn test_user_init_elf_infinite_loop_code() {
-        // Check that the code at offset 0x78 is 0xEB 0xFE (jmp $)
-        assert_eq!(USER_INIT_ELF[0x78], 0xEB);
-        assert_eq!(USER_INIT_ELF[0x79], 0xFE);
+    fn test_user_init_elf_syscall_code() {
+        // Check that the code starts with mov rax, 1
+        assert_eq!(USER_INIT_ELF[0x78], 0x48); // REX.W prefix
+        assert_eq!(USER_INIT_ELF[0x79], 0xC7); // MOV opcode
+        assert_eq!(USER_INIT_ELF[0x7A], 0xC0); // /0 (RAX)
+        assert_eq!(USER_INIT_ELF[0x7B], 0x01); // immediate 1
     }
 }
