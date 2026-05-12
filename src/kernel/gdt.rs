@@ -95,7 +95,11 @@ pub fn setup_tss_stack(kernel_stack_top: VirtAddr) {
         let rsp0 = TSS.privilege_stack_table[0].as_u64();
         for i in (0..16).rev() {
             let nibble = ((rsp0 >> (i * 4)) & 0xF) as u8;
-            crate::serial::write_byte(if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) });
+            crate::serial::write_byte(if nibble < 10 {
+                b'0' + nibble
+            } else {
+                b'a' + (nibble - 10)
+            });
         }
         crate::serial::write_str("\r\n");
     }

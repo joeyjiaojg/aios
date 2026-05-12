@@ -36,8 +36,8 @@ core::arch::global_asm!(
     // DEBUG: Write '*' to COM1 (0x3F8) to signal int 0x80 entry
     "push rax",
     "push rdx",
-    "mov al, 0x2A",     // '*' character
-    "mov dx, 0x3F8",    // COM1 port
+    "mov al, 0x2A",  // '*' character
+    "mov dx, 0x3F8", // COM1 port
     "out dx, al",
     "pop rdx",
     "pop rax",
@@ -114,8 +114,10 @@ pub fn init() {
         IDT.breakpoint.set_handler_fn(breakpoint_handler);
         IDT.double_fault.set_handler_fn(double_fault_handler);
         IDT.page_fault.set_handler_fn(page_fault_handler);
-        IDT.general_protection_fault.set_handler_fn(general_protection_fault_handler);
-        IDT.stack_segment_fault.set_handler_fn(stack_segment_fault_handler);
+        IDT.general_protection_fault
+            .set_handler_fn(general_protection_fault_handler);
+        IDT.stack_segment_fault
+            .set_handler_fn(stack_segment_fault_handler);
         // IRQ 0 (timer) → vector PIC_1_OFFSET (32), IRQ 1 (keyboard) → 33
         IDT[PIC_1_OFFSET].set_handler_fn(timer_interrupt_handler);
         IDT[PIC_1_OFFSET + 1].set_handler_fn(keyboard_interrupt_handler);

@@ -41,12 +41,20 @@ pub fn map_user_segment(vaddr: u64, memsz: u64) {
     crate::serial::write_str("[elf] map_user_segment: vaddr=0x");
     for i in (0..16).rev() {
         let nibble = ((vaddr >> (i * 4)) & 0xF) as u8;
-        crate::serial::write_byte(if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) });
+        crate::serial::write_byte(if nibble < 10 {
+            b'0' + nibble
+        } else {
+            b'a' + (nibble - 10)
+        });
     }
     crate::serial::write_str(" memsz=0x");
     for i in (0..16).rev() {
         let nibble = ((memsz >> (i * 4)) & 0xF) as u8;
-        crate::serial::write_byte(if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) });
+        crate::serial::write_byte(if nibble < 10 {
+            b'0' + nibble
+        } else {
+            b'a' + (nibble - 10)
+        });
     }
     crate::serial::write_str("\r\n");
 
@@ -525,7 +533,9 @@ pub fn start_user_program(
     // # Safety
     // Reading from entry point address to verify it's mapped and accessible.
     let test_byte = unsafe { *(context.entry as *const u8) };
-    crate::serial::write_str("[elf] start_user_program: verified entry point readable, first byte=0x");
+    crate::serial::write_str(
+        "[elf] start_user_program: verified entry point readable, first byte=0x",
+    );
     print_hex_u64(test_byte as u64);
     crate::serial::write_str("\r\n");
 
