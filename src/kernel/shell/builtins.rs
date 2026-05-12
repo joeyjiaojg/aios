@@ -400,7 +400,7 @@ pub fn execute_builtin(cmd: &str, args: &[&str]) -> bool {
         }
         "fg" => crate::shell::job_control::fg(args_slice).is_ok(),
         "bg" => crate::shell::job_control::bg(args_slice).is_ok(),
-        "exec" => exec_cmd(cmd, args).is_ok(),
+        "exec" => exec_cmd(cmd, args_slice).is_ok(),
         _ => false,
     }
 }
