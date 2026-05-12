@@ -5,6 +5,12 @@
 // Prompt: Create VFS framework for AIOS x86_64 kernel in Rust no_std with VfsNode,
 //         VfsManager with 256 nodes and 8 mount points, thread safety with spin::Mutex
 
+#![allow(clippy::new_without_default)]
+#![allow(clippy::manual_find)]
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::clone_on_copy)]
+#![allow(clippy::needless_range_loop)]
+
 use spin::Mutex;
 
 /// Maximum filename length (null-terminated string)
