@@ -110,6 +110,7 @@ impl VfsNode {
 
 /// Mount point structure
 #[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
 struct MountPoint {
     source: u64,
     target: u64,

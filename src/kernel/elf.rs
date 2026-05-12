@@ -221,8 +221,8 @@ impl ElfLoader {
     pub fn load_segments(
         &self,
         data: &[u8],
-        allocator: &mut FrameAllocator,
-        phys_base: *mut u8,
+        _allocator: &mut FrameAllocator,
+        _phys_base: *mut u8,
     ) -> Result<LoadedElf, &'static str> {
         let ehdr = Self::validate(data)?;
         let mut min_addr = u64::MAX;
@@ -567,7 +567,6 @@ pub fn start_user_program(
             rip = in(reg) rip_val,
             options(noreturn)
         );
-        core::hint::unreachable_unchecked()
     }
 }
 
