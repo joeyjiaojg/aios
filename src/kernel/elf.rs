@@ -431,6 +431,7 @@ pub fn start_user_program(
     user_cs: SegmentSelector,
     user_ss: SegmentSelector,
 ) -> ! {
+    crate::serial::write_str("[elf] start_user_program: setting up TSS\r\n");
     // Set up the TSS ring-0 stack so that any ring-3 → ring-0 transition
     // (syscall int 0x80, page fault, etc.) has a valid kernel stack to switch to.
     // # Safety
@@ -440,7 +441,9 @@ pub fn start_user_program(
     unsafe {
         crate::gdt::setup_tss_stack(x86_64::VirtAddr::new(&boot_stack_top as *const u8 as u64));
     }
+    crate::serial::write_str("[elf] start_user_program: TSS ready\r\n");
 
+    crate::serial::write_str("[elf] start_user_program: building iretq frame\r\n");
     // # Safety
     // Constructs a valid iretq frame to transition from ring 0 to ring 3.
     // The iretq frame is pushed onto the CURRENT (kernel) stack, not user stack.
@@ -457,6 +460,7 @@ pub fn start_user_program(
         let cs_val = (user_cs.0 as u64) | 3;
         let rip_val = context.entry;
 
+        crate::serial::write_str("[elf] start_user_program: executing iretq to ring 3...\r\n");
         // Push iretq frame onto kernel stack (current RSP).
         // Push in reverse order so iretq pops RIP first.
         core::arch::asm!(

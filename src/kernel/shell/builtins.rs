@@ -337,20 +337,36 @@ pub fn exec_cmd(_cmd: &str, args: &[&str]) -> Result<(), &'static str> {
         e
     })?;
 
-    crate::serial::write_str("exec: transitioning to ring 3 at entry ");
-    // Print entry point in hex
-    let entry_hex = context.entry;
-    crate::serial::write_str("0x");
+    crate::serial::write_str("exec: entry=0x");
+    // Print entry point in hex (simplified)
     for i in (0..16).rev() {
-        let nibble = ((entry_hex >> (i * 4)) & 0xF) as u8;
-        let ch = if nibble < 10 {
-            b'0' + nibble
-        } else {
-            b'a' + (nibble - 10)
-        };
+        let nibble = ((context.entry >> (i * 4)) & 0xF) as u8;
+        let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
+        crate::serial::write_byte(ch);
+    }
+    crate::serial::write_str(" stack=0x");
+    for i in (0..16).rev() {
+        let nibble = ((context.stack_ptr >> (i * 4)) & 0xF) as u8;
+        let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
         crate::serial::write_byte(ch);
     }
     crate::serial::write_str("\r\n");
+    crate::serial::write_str("exec: user_cs=");
+    let cs_val = selectors.user_code_selector.0;
+    for i in (0..4).rev() {
+        let nibble = ((cs_val >> (i * 4)) & 0xF) as u8;
+        let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
+        crate::serial::write_byte(ch);
+    }
+    crate::serial::write_str(" user_ss=");
+    let ss_val = selectors.user_data_selector.0;
+    for i in (0..4).rev() {
+        let nibble = ((ss_val >> (i * 4)) & 0xF) as u8;
+        let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
+        crate::serial::write_byte(ch);
+    }
+    crate::serial::write_str("\r\n");
+    crate::serial::write_str("exec: calling start_user_program...\r\n");
 
     // Transition to ring 3 — does not return.
     crate::elf::start_user_program(&context, selectors.user_code_selector, selectors.user_data_selector);
