@@ -5,6 +5,11 @@
 // Prompt: Create VFS framework for AIOS x86_64 kernel in Rust no_std with VfsNode,
 //         VfsManager with 256 nodes and 8 mount points, thread safety with spin::Mutex
 
+#![allow(clippy::new_without_default)]
+#![allow(clippy::manual_find)]
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::clone_on_copy)]
+#![allow(clippy::needless_range_loop)]
 
 use spin::Mutex;
 
@@ -45,7 +50,7 @@ impl VfsNode {
         let bytes = name.as_bytes();
         let len = bytes.len().min(MAX_NAME_LEN - 1);
         name_arr[..len].copy_from_slice(&bytes[..len]);
-        
+
         Self {
             id,
             name: name_arr,
@@ -65,7 +70,11 @@ impl VfsNode {
 
     /// Get node name as a string
     pub fn name(&self) -> &str {
-        let len = self.name.iter().position(|&b| b == 0).unwrap_or(MAX_NAME_LEN);
+        let len = self
+            .name
+            .iter()
+            .position(|&b| b == 0)
+            .unwrap_or(MAX_NAME_LEN);
         core::str::from_utf8(&self.name[..len]).unwrap_or("")
     }
 
@@ -107,6 +116,7 @@ impl VfsNode {
 
 /// Mount point structure
 #[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
 struct MountPoint {
     source: u64,
     target: u64,
@@ -116,7 +126,11 @@ struct MountPoint {
 impl MountPoint {
     /// Create a new mount point
     pub fn new(source: u64, target: u64, flags: u32) -> Self {
-        Self { source, target, flags }
+        Self {
+            source,
+            target,
+            flags,
+        }
     }
 }
 
@@ -135,14 +149,14 @@ impl VfsManager {
         let mut manager = Self {
             nodes: [None; MAX_NODES],
             mounts: [None; MAX_MOUNTS],
-            next_node_id: 2,  // Start from 2 because 1 is root
+            next_node_id: 2, // Start from 2 because 1 is root
             node_count: 1,
             mount_count: 0,
         };
-        
+
         // Create root directory "/"
         manager.nodes[0] = Some(VfsNode::new(1, "/", VfsNodeType::Directory));
-        
+
         manager
     }
 
@@ -319,63 +333,66 @@ impl VfsManager {
     /// Read data from a node
     pub fn read(&self, id: u64, offset: u64, buffer: &mut [u8]) -> Result<usize, VfsError> {
         let idx = self.find_node_index(id).ok_or(VfsError::NodeNotFound)?;
-        
+
         let node = self.nodes[idx].as_ref().ok_or(VfsError::NodeNotFound)?;
-        
+
         if node.node_type() != VfsNodeType::File {
             return Err(VfsError::NotAFile);
         }
 
         let data_size = node.data_size();
-        
+
         if offset >= data_size as u64 {
             return Ok(0);
         }
 
         let remaining = data_size - offset as usize;
         let to_read = buffer.len().min(remaining);
-        
+
         buffer[..to_read].copy_from_slice(&node.data[offset as usize..(offset as usize + to_read)]);
-        
+
         Ok(to_read)
     }
 
     /// Write data to a node
     pub fn write(&mut self, id: u64, offset: u64, data: &[u8]) -> Result<usize, VfsError> {
         let idx = self.find_node_index(id).ok_or(VfsError::NodeNotFound)?;
-        
+
         let node = self.nodes[idx].as_ref().ok_or(VfsError::NodeNotFound)?;
-        
+
         if node.node_type() != VfsNodeType::File {
             return Err(VfsError::NotAFile);
         }
 
         let write_len = data.len() as u64;
         let new_size = (offset + write_len) as usize;
-        
+
         if new_size > MAX_DATA_SIZE {
             return Err(VfsError::NoData);
         }
-        
+
         if let Some(ref mut n) = self.nodes[idx] {
             n.data[offset as usize..(offset as usize + data.len())].copy_from_slice(data);
             n.data_size = n.data_size.max(new_size);
             n.size = n.size.max(new_size as u64);
         }
-        
+
         Ok(data.len())
     }
 
     /// Get a node by ID
     pub fn get_node(&self, id: u64) -> Result<VfsNode, VfsError> {
         let idx = self.find_node_index(id).ok_or(VfsError::NodeNotFound)?;
-        self.nodes[idx].as_ref().cloned().ok_or(VfsError::NodeNotFound)
+        self.nodes[idx]
+            .as_ref()
+            .cloned()
+            .ok_or(VfsError::NodeNotFound)
     }
 
     /// Delete a node
     pub fn delete_node(&mut self, id: u64) -> Result<(), VfsError> {
         let idx = self.find_node_index(id).ok_or(VfsError::NodeNotFound)?;
-        
+
         if let Some(ref node) = self.nodes[idx] {
             if node.is_mounted() {
                 return Err(VfsError::AlreadyMounted);
@@ -384,12 +401,17 @@ impl VfsManager {
 
         self.nodes[idx] = None;
         self.node_count -= 1;
-        
+
         Ok(())
     }
 
     /// Create a new node
-    pub fn create_node(&mut self, name: &str, node_type: VfsNodeType, parent: Option<u64>) -> Result<VfsNode, VfsError> {
+    pub fn create_node(
+        &mut self,
+        name: &str,
+        node_type: VfsNodeType,
+        parent: Option<u64>,
+    ) -> Result<VfsNode, VfsError> {
         if self.node_count >= MAX_NODES {
             return Err(VfsError::NodeNotFound);
         }
@@ -451,27 +473,47 @@ pub fn vfs_manager() -> &'static Mutex<Option<VfsManager>> {
 
 ///Mount a filesystem
 pub fn mount(source: u64, target: u64, flags: u32) -> Result<(), VfsError> {
-    VFS_MANAGER.lock().as_mut().ok_or(VfsError::InvalidPath)?.mount(source, target, flags)
+    VFS_MANAGER
+        .lock()
+        .as_mut()
+        .ok_or(VfsError::InvalidPath)?
+        .mount(source, target, flags)
 }
 
 /// Unmount a filesystem
 pub fn unmount(target: u64) -> Result<(), VfsError> {
-    VFS_MANAGER.lock().as_mut().ok_or(VfsError::InvalidPath)?.unmount(target)
+    VFS_MANAGER
+        .lock()
+        .as_mut()
+        .ok_or(VfsError::InvalidPath)?
+        .unmount(target)
 }
 
 /// Lookup a node by path
 pub fn lookup(path: &[u8]) -> Result<VfsNode, VfsError> {
-    VFS_MANAGER.lock().as_ref().ok_or(VfsError::InvalidPath)?.lookup(path)
+    VFS_MANAGER
+        .lock()
+        .as_ref()
+        .ok_or(VfsError::InvalidPath)?
+        .lookup(path)
 }
 
 /// Read from a node
 pub fn read(id: u64, offset: u64, buffer: &mut [u8]) -> Result<usize, VfsError> {
-    VFS_MANAGER.lock().as_ref().ok_or(VfsError::InvalidPath)?.read(id, offset, buffer)
+    VFS_MANAGER
+        .lock()
+        .as_ref()
+        .ok_or(VfsError::InvalidPath)?
+        .read(id, offset, buffer)
 }
 
 /// Write to a node
 pub fn write(id: u64, offset: u64, data: &[u8]) -> Result<usize, VfsError> {
-    VFS_MANAGER.lock().as_mut().ok_or(VfsError::InvalidPath)?.write(id, offset, data)
+    VFS_MANAGER
+        .lock()
+        .as_mut()
+        .ok_or(VfsError::InvalidPath)?
+        .write(id, offset, data)
 }
 
 #[cfg(test)]
@@ -489,7 +531,7 @@ mod tests {
     #[test]
     fn test_vfs_manager_new() {
         let mgr = VfsManager::new();
-        assert_eq!(mgr.node_count, 1);  // Root directory "/" is created
+        assert_eq!(mgr.node_count, 1); // Root directory "/" is created
         assert_eq!(mgr.mount_count, 0);
     }
 
@@ -527,7 +569,9 @@ mod tests {
     #[test]
     fn test_parent_child_relationship() {
         let mut mgr = VfsManager::new();
-        let parent = mgr.create_node("parent", VfsNodeType::Directory, None).unwrap();
+        let parent = mgr
+            .create_node("parent", VfsNodeType::Directory, None)
+            .unwrap();
         let child = mgr.create_node("child", VfsNodeType::File, Some(parent.id()));
         assert!(child.is_ok());
         assert_eq!(child.unwrap().parent_id(), Some(parent.id()));
@@ -536,7 +580,9 @@ mod tests {
     #[test]
     fn test_mount_unmount() {
         let mut mgr = VfsManager::new();
-        let node = mgr.create_node("mnt", VfsNodeType::Directory, None).unwrap();
+        let node = mgr
+            .create_node("mnt", VfsNodeType::Directory, None)
+            .unwrap();
         assert!(mgr.mount(node.id(), 1).is_ok());
         assert!(mgr.unmount(node.id()).is_ok());
     }
@@ -562,16 +608,20 @@ mod tests {
     #[test]
     fn test_read_write_not_a_file() {
         let mut mgr = VfsManager::new();
-        let dir = mgr.create_node("dir", VfsNodeType::Directory, None).unwrap();
+        let dir = mgr
+            .create_node("dir", VfsNodeType::Directory, None)
+            .unwrap();
         let mut buf = [0u8; 10];
         assert!(mgr.read(dir.id(), 0, &mut buf).is_err());
-        assert!(mgr.write(dir.id(), 0, &[1,2,3]).is_err());
+        assert!(mgr.write(dir.id(), 0, &[1, 2, 3]).is_err());
     }
 
     #[test]
     fn test_duplicate_mount() {
         let mut mgr = VfsManager::new();
-        let node = mgr.create_node("mnt", VfsNodeType::Directory, None).unwrap();
+        let node = mgr
+            .create_node("mnt", VfsNodeType::Directory, None)
+            .unwrap();
         assert!(mgr.mount(node.id(), 1).is_ok());
         assert!(mgr.mount(node.id(), 2).is_err());
     }

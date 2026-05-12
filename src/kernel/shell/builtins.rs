@@ -4,6 +4,8 @@
 // Tool: opencode
 // Prompt: Built-in shell commands for AIOS - cd, pwd, exit, echo, ls, mkdir, rm, cat, set, unset, help, exec.
 
+#![allow(clippy::manual_inspect)]
+
 use crate::process;
 use crate::ramdisk::RAMDISK;
 use crate::shell::{get_current_dir_str, set_current_dir};
@@ -357,13 +359,21 @@ pub fn exec_cmd(_cmd: &str, args: &[&str]) -> Result<(), &'static str> {
     // Print entry point in hex (simplified)
     for i in (0..16).rev() {
         let nibble = ((context.entry >> (i * 4)) & 0xF) as u8;
-        let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
+        let ch = if nibble < 10 {
+            b'0' + nibble
+        } else {
+            b'a' + (nibble - 10)
+        };
         crate::serial::write_byte(ch);
     }
     crate::serial::write_str(" stack=0x");
     for i in (0..16).rev() {
         let nibble = ((context.stack_ptr >> (i * 4)) & 0xF) as u8;
-        let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
+        let ch = if nibble < 10 {
+            b'0' + nibble
+        } else {
+            b'a' + (nibble - 10)
+        };
         crate::serial::write_byte(ch);
     }
     crate::serial::write_str("\r\n");
@@ -371,21 +381,33 @@ pub fn exec_cmd(_cmd: &str, args: &[&str]) -> Result<(), &'static str> {
     let cs_val = selectors.user_code_selector.0;
     for i in (0..4).rev() {
         let nibble = ((cs_val >> (i * 4)) & 0xF) as u8;
-        let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
+        let ch = if nibble < 10 {
+            b'0' + nibble
+        } else {
+            b'a' + (nibble - 10)
+        };
         crate::serial::write_byte(ch);
     }
     crate::serial::write_str(" user_ss=");
     let ss_val = selectors.user_data_selector.0;
     for i in (0..4).rev() {
         let nibble = ((ss_val >> (i * 4)) & 0xF) as u8;
-        let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
+        let ch = if nibble < 10 {
+            b'0' + nibble
+        } else {
+            b'a' + (nibble - 10)
+        };
         crate::serial::write_byte(ch);
     }
     crate::serial::write_str("\r\n");
     crate::serial::write_str("exec: calling start_user_program...\r\n");
 
     // Transition to ring 3 — does not return.
-    crate::elf::start_user_program(&context, selectors.user_code_selector, selectors.user_data_selector);
+    crate::elf::start_user_program(
+        &context,
+        selectors.user_code_selector,
+        selectors.user_data_selector,
+    );
 }
 
 pub fn execute_builtin(cmd: &str, args: &[&str]) -> bool {

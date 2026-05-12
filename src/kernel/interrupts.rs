@@ -33,6 +33,14 @@ pub static TIMER_TICK: AtomicBool = AtomicBool::new(false);
 core::arch::global_asm!(
     ".global syscall_int80_trampoline",
     "syscall_int80_trampoline:",
+    // DEBUG: Write '*' to COM1 (0x3F8) to signal int 0x80 entry
+    "push rax",
+    "push rdx",
+    "mov al, 0x2A",  // '*' character
+    "mov dx, 0x3F8", // COM1 port
+    "out dx, al",
+    "pop rdx",
+    "pop rax",
     "push rbp",
     "push rbx",
     "push r10",
@@ -106,8 +114,10 @@ pub fn init() {
         IDT.breakpoint.set_handler_fn(breakpoint_handler);
         IDT.double_fault.set_handler_fn(double_fault_handler);
         IDT.page_fault.set_handler_fn(page_fault_handler);
-        IDT.general_protection_fault.set_handler_fn(general_protection_fault_handler);
-        IDT.stack_segment_fault.set_handler_fn(stack_segment_fault_handler);
+        IDT.general_protection_fault
+            .set_handler_fn(general_protection_fault_handler);
+        IDT.stack_segment_fault
+            .set_handler_fn(stack_segment_fault_handler);
         // IRQ 0 (timer) → vector PIC_1_OFFSET (32), IRQ 1 (keyboard) → 33
         IDT[PIC_1_OFFSET].set_handler_fn(timer_interrupt_handler);
         IDT[PIC_1_OFFSET + 1].set_handler_fn(keyboard_interrupt_handler);
@@ -119,7 +129,7 @@ pub fn init() {
         }
         IDT[0x80u8]
             .set_handler_addr(x86_64::VirtAddr::new(
-                syscall_int80_trampoline as usize as u64,
+                syscall_int80_trampoline as *const () as usize as u64,
             ))
             .set_privilege_level(x86_64::PrivilegeLevel::Ring3);
         IDT.load();
@@ -305,9 +315,9 @@ extern "x86-interrupt" fn stack_segment_fault_handler(
 fn print_hex(val: u64) {
     let hex_chars = b"0123456789abcdef";
     let mut buf = [0u8; 16];
-    for i in 0..16 {
+    for (i, item) in buf.iter_mut().enumerate() {
         let nibble = ((val >> (60 - i * 4)) & 0xF) as usize;
-        buf[i] = hex_chars[nibble];
+        *item = hex_chars[nibble];
     }
     for &byte in &buf {
         crate::serial::write_byte(byte);

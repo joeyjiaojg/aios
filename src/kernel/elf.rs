@@ -41,17 +41,25 @@ pub fn map_user_segment(vaddr: u64, memsz: u64) {
     crate::serial::write_str("[elf] map_user_segment: vaddr=0x");
     for i in (0..16).rev() {
         let nibble = ((vaddr >> (i * 4)) & 0xF) as u8;
-        crate::serial::write_byte(if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) });
+        crate::serial::write_byte(if nibble < 10 {
+            b'0' + nibble
+        } else {
+            b'a' + (nibble - 10)
+        });
     }
     crate::serial::write_str(" memsz=0x");
     for i in (0..16).rev() {
         let nibble = ((memsz >> (i * 4)) & 0xF) as u8;
-        crate::serial::write_byte(if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) });
+        crate::serial::write_byte(if nibble < 10 {
+            b'0' + nibble
+        } else {
+            b'a' + (nibble - 10)
+        });
     }
     crate::serial::write_str("\r\n");
 
     let start_entry = (vaddr / P2_ENTRY_SIZE) as usize;
-    let end_entry = ((vaddr + memsz + P2_ENTRY_SIZE - 1) / P2_ENTRY_SIZE) as usize;
+    let end_entry = ((vaddr + memsz).div_ceil(P2_ENTRY_SIZE)) as usize;
     let end_entry = end_entry.min(P2_ENTRIES);
     crate::serial::write_str("[elf] map_user_segment: P2 entries ");
     crate::serial::write_byte(b'0' + (start_entry as u8));
@@ -65,11 +73,16 @@ pub fn map_user_segment(vaddr: u64, memsz: u64) {
     // on entries that correspond to the ELF segment virtual range. Called once
     // from load_and_map, before interrupts route to ring-3 code.
     unsafe {
-        for i in start_entry..end_entry {
+        for (i, entry) in p2_table
+            .iter_mut()
+            .enumerate()
+            .take(end_entry)
+            .skip(start_entry)
+        {
             crate::serial::write_str("[elf] map_user_segment: marking P2[");
             crate::serial::write_byte(b'0' + (i as u8));
             crate::serial::write_str("] as user-accessible\r\n");
-            p2_table[i] = (i as u64 * P2_ENTRY_SIZE) | P2_FLAGS_USER;
+            *entry = (i as u64 * P2_ENTRY_SIZE) | P2_FLAGS_USER;
         }
         // Flush TLB by reloading CR3.
         core::arch::asm!(
@@ -213,8 +226,8 @@ impl ElfLoader {
     pub fn load_segments(
         &self,
         data: &[u8],
-        allocator: &mut FrameAllocator,
-        phys_base: *mut u8,
+        _allocator: &mut FrameAllocator,
+        _phys_base: *mut u8,
     ) -> Result<LoadedElf, &'static str> {
         let ehdr = Self::validate(data)?;
         let mut min_addr = u64::MAX;
@@ -356,8 +369,8 @@ impl UserStack {
 
         // Allocate physical frames for the stack
         let mut frame_addrs = [0usize; 8]; // USER_STACK_SIZE is 8 pages
-        for i in 0..pages {
-            frame_addrs[i] = allocator
+        for frame_addr in frame_addrs.iter_mut().take(pages) {
+            *frame_addr = allocator
                 .alloc_frame_addr(phys_base)
                 .ok_or("Failed to allocate stack frame")? as usize;
         }
@@ -525,7 +538,9 @@ pub fn start_user_program(
     // # Safety
     // Reading from entry point address to verify it's mapped and accessible.
     let test_byte = unsafe { *(context.entry as *const u8) };
-    crate::serial::write_str("[elf] start_user_program: verified entry point readable, first byte=0x");
+    crate::serial::write_str(
+        "[elf] start_user_program: verified entry point readable, first byte=0x",
+    );
     print_hex_u64(test_byte as u64);
     crate::serial::write_str("\r\n");
 
@@ -557,16 +572,15 @@ pub fn start_user_program(
             rip = in(reg) rip_val,
             options(noreturn)
         );
-        core::hint::unreachable_unchecked()
     }
 }
 
 fn print_hex_u64(val: u64) {
     let hex_chars = b"0123456789abcdef";
     let mut buf = [0u8; 16];
-    for i in 0..16 {
+    for (i, item) in buf.iter_mut().enumerate() {
         let nibble = ((val >> (60 - i * 4)) & 0xF) as usize;
-        buf[i] = hex_chars[nibble];
+        *item = hex_chars[nibble];
     }
     for &byte in &buf {
         crate::serial::write_byte(byte);
