@@ -242,43 +242,47 @@ impl ElfLoader {
                 return Err("Segment data out of bounds");
             }
 
-            let page_aligned_start = phdr.p_vaddr & !0xFFF;
-            let page_aligned_end = (phdr.p_vaddr + phdr.p_memsz + 0xFFF) & !0xFFF;
-            let pages_needed = ((page_aligned_end - page_aligned_start) / 4096) as usize;
+            // With identity mapping in first 1GB, we can load directly to vaddr
+            crate::serial::write_str("[elf] load_segments: loading to vaddr=0x");
+            print_hex_u64(phdr.p_vaddr);
+            crate::serial::write_str(" filesz=");
+            print_hex_u64(phdr.p_filesz);
+            crate::serial::write_str(" memsz=");
+            print_hex_u64(phdr.p_memsz);
+            crate::serial::write_str("\r\n");
 
-            for p in 0..pages_needed {
-                let frame_vaddr = page_aligned_start + (p as u64) * 4096;
-                if let Some(frame_addr) = allocator.alloc_frame_addr(phys_base) {
-                    let frame_ptr = frame_addr as u64;
-                    let offset_in_data = if frame_vaddr >= phdr.p_vaddr {
-                        (frame_vaddr - phdr.p_vaddr) as usize
-                    } else {
-                        0
-                    };
+            // Copy file data
+            let src_offset = phdr.p_offset as usize;
+            let filesz = phdr.p_filesz as usize;
+            let dst_ptr = phdr.p_vaddr as *mut u8;
 
-                    for byte in 0..4096 {
-                        // # Safety
-                        // alloc_frame_addr returns a pointer to a pre-allocated physical frame.
-                        // phys_base is the virtual address of the physical memory base region.
-                        // The kernel identity-maps physical memory, so phys_base + idx*4096
-                        // gives a directly dereferenceable virtual address. frame_ptr.wrapping_add
-                        // computes the virtual address of byte 'byte' within this frame, which
-                        // is writable kernel memory (no other mapping needed).
-                        let dst = unsafe { &mut *(frame_ptr.wrapping_add(byte as u64) as *mut u8) };
-                        if offset_in_data + byte < phdr.p_filesz as usize {
-                            let src_idx = phdr.p_offset as usize + offset_in_data + byte;
-                            if src_idx < data.len() {
-                                *dst = data[src_idx];
-                            } else {
-                                *dst = 0;
-                            }
-                        } else if offset_in_data + byte < phdr.p_memsz as usize {
-                            *dst = 0;
-                        }
+            // # Safety
+            // Identity mapping means vaddr 0x400000 is accessible at physical 0x400000.
+            // We're writing to the region that will be marked user-accessible. This is
+            // safe because we're in kernel mode with full access to the first 1GB.
+            unsafe {
+                for i in 0..filesz {
+                    if src_offset + i < data.len() {
+                        *dst_ptr.add(i) = data[src_offset + i];
                     }
-                } else {
-                    return Err("Failed to allocate frame for segment");
                 }
+                // Zero BSS (memsz - filesz)
+                let bss_size = (phdr.p_memsz - phdr.p_filesz) as usize;
+                for i in 0..bss_size {
+                    *dst_ptr.add(filesz + i) = 0;
+                }
+            }
+            crate::serial::write_str("[elf] load_segments: segment loaded\r\n");
+            // Debug: dump first few bytes at entry point
+            if ehdr.e_entry >= phdr.p_vaddr && ehdr.e_entry < phdr.p_vaddr + phdr.p_memsz {
+                crate::serial::write_str("[elf] load_segments: entry point bytes: ");
+                let entry_ptr = ehdr.e_entry as *const u8;
+                for i in 0..8 {
+                    let byte = unsafe { *entry_ptr.add(i) };
+                    print_hex_u64(byte as u64);
+                    crate::serial::write_str(" ");
+                }
+                crate::serial::write_str("\r\n");
             }
         }
 
@@ -493,47 +497,67 @@ pub fn start_user_program(
     //   CS  (user code selector with RPL=3)
     //   RFLAGS (IF=1, reserved bit 1)
     //   RSP (user stack pointer)
+    // Build iretq frame values
+    // Clear RPL bits and set to ring 3
+    let ss_val = ((user_ss.0 & !3) as u64) | 3;
+    let rsp_val = context.stack_ptr;
+    let cs_val = ((user_cs.0 & !3) as u64) | 3;
+    let rip_val = context.entry;
+
+    crate::serial::write_str("[elf] selector debug: user_ss.0=0x");
+    print_hex_u64(user_ss.0 as u64);
+    crate::serial::write_str(" user_cs.0=0x");
+    print_hex_u64(user_cs.0 as u64);
+    crate::serial::write_str("\r\n");
+
+    crate::serial::write_str("[elf] iretq frame dump:\r\n");
+    crate::serial::write_str("  RIP: 0x");
+    print_hex_u64(rip_val);
+    crate::serial::write_str("\r\n  CS: 0x");
+    print_hex_u64(cs_val);
+    crate::serial::write_str("\r\n  RFLAGS: 0x202\r\n  RSP: 0x");
+    print_hex_u64(rsp_val);
+    crate::serial::write_str("\r\n  SS: 0x");
+    print_hex_u64(ss_val);
+    crate::serial::write_str("\r\n");
+    crate::serial::write_str("[elf] start_user_program: executing iretq to ring 3...\r\n");
+    // Test: verify we can read from the entry point address
+    // # Safety
+    // Reading from entry point address to verify it's mapped and accessible.
+    let test_byte = unsafe { *(context.entry as *const u8) };
+    crate::serial::write_str("[elf] start_user_program: verified entry point readable, first byte=0x");
+    print_hex_u64(test_byte as u64);
+    crate::serial::write_str("\r\n");
+
+    // # Safety
+    // Constructs a valid iretq frame to transition from ring 0 to ring 3.
+    // The iretq frame is pushed onto the CURRENT (kernel) stack, not user stack.
+    // iretq pops these 5 values in order:
+    //   RIP (user entry point)
+    //   CS  (user code selector with RPL=3)
+    //   RFLAGS (IF=1, reserved bit 1)
+    //   RSP (user stack pointer)
     //   SS  (user data selector with RPL=3)
     unsafe {
-        let ss_val = (user_ss.0 as u64) | 3;
-        let rsp_val = context.stack_ptr;
-        let rflags_val = 0x202u64; // IF=1, reserved bit 1
-        let cs_val = (user_cs.0 as u64) | 3;
-        let rip_val = context.entry;
-
-        crate::serial::write_str("[elf] iretq frame dump:\r\n");
-        crate::serial::write_str("  RIP: 0x");
-        print_hex_u64(rip_val);
-        crate::serial::write_str("\r\n  CS: 0x");
-        print_hex_u64(cs_val);
-        crate::serial::write_str("\r\n  RFLAGS: 0x");
-        print_hex_u64(rflags_val);
-        crate::serial::write_str("\r\n  RSP: 0x");
-        print_hex_u64(rsp_val);
-        crate::serial::write_str("\r\n  SS: 0x");
-        print_hex_u64(ss_val);
-        crate::serial::write_str("\r\n");
-        crate::serial::write_str("[elf] start_user_program: executing iretq to ring 3...\r\n");
-        // Disable interrupts before iretq to rule out interrupt-related issues
-        // # Safety
-        // Temporarily disabling interrupts is safe during the ring transition.
-        core::arch::asm!("cli");
         // Push iretq frame onto kernel stack (current RSP).
         // Push in reverse order so iretq pops RIP first.
+        // Note: On x86-64, iretq expects: SS, RSP, RFLAGS, CS, RIP (top to bottom)
         core::arch::asm!(
-            "push {ss}",
-            "push {rsp}",
-            "push {rflags}",
-            "push {cs}",
-            "push {rip}",
+            "cli",                  // Disable interrupts during transition
+            "push {ss}",           // SS
+            "push {rsp}",          // RSP
+            "mov r11, 0x202",      // RFLAGS: IF=1, reserved bit 1
+            "push r11",
+            "push {cs}",           // CS
+            "push {rip}",          // RIP
             "iretq",
             ss = in(reg) ss_val,
             rsp = in(reg) rsp_val,
-            rflags = in(reg) rflags_val,
             cs = in(reg) cs_val,
             rip = in(reg) rip_val,
             options(noreturn)
         );
+        core::hint::unreachable_unchecked()
     }
 }
 
