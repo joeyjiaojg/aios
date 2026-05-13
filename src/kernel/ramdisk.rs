@@ -73,15 +73,12 @@ pub fn init_from_modules() {
                 source: FileSource::Module(0),
             })
             .is_ok()
+            && crate::debug::is_debug_enabled()
         {
-            if crate::debug::is_debug_enabled() {
-                crate::serial::write_str("[ramdisk] registered /bin/sh → module 0\r\n");
-            }
+            crate::serial::write_str("[ramdisk] registered /bin/sh → module 0\r\n");
         }
-    } else {
-        if crate::debug::is_debug_enabled() {
-            crate::serial::write_str("[ramdisk] WARNING: no modules found\r\n");
-        }
+    } else if crate::debug::is_debug_enabled() {
+        crate::serial::write_str("[ramdisk] WARNING: no modules found\r\n");
     }
 
     let count = index.len();
