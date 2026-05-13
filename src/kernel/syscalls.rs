@@ -10,24 +10,38 @@ pub const SYSCALL_READ: usize = 0;
 pub const SYSCALL_WRITE: usize = 1;
 pub const SYSCALL_OPEN: usize = 2;
 pub const SYSCALL_CLOSE: usize = 3;
-pub const SYSCALL_EXIT: usize = 60;
+pub const SYSCALL_RT_SIGACTION: usize = 13;
+pub const SYSCALL_RT_SIGPROCMASK: usize = 14;
+pub const SYSCALL_WRITEV: usize = 20;
+pub const SYSCALL_GETCWD: usize = 17;
+pub const SYSCALL_DUP: usize = 32;
+pub const SYSCALL_DUP2: usize = 33;
 pub const SYSCALL_GETPID: usize = 39;
+pub const SYSCALL_UNAME: usize = 63;
 pub const SYSCALL_BRK: usize = 12;
 pub const SYSCALL_MMAP: usize = 9;
 pub const SYSCALL_MUNMAP: usize = 11;
+pub const SYSCALL_GETUID: usize = 102;
+pub const SYSCALL_GETGID: usize = 104;
+pub const SYSCALL_GETEUID: usize = 107;
+pub const SYSCALL_GETEGID: usize = 108;
+pub const SYSCALL_SIGALTSTACK: usize = 131;
 pub const SYSCALL_CLOCK_GETTIME: usize = 160;
+pub const SYSCALL_ARCH_PRCTL: usize = 158;
 pub const SYSCALL_FORK: usize = 57;
 pub const SYSCALL_EXECVE: usize = 59;
+pub const SYSCALL_EXIT: usize = 60;
 pub const SYSCALL_WAIT4: usize = 61;
-pub const SYSCALL_GETCWD: usize = 17;
+pub const SYSCALL_EXIT_GROUP: usize = 231;
+pub const SYSCALL_SET_TID_ADDRESS: usize = 218;
+pub const SYSCALL_SET_ROBUST_LIST: usize = 273;
+pub const SYSCALL_PRLIMIT64: usize = 302;
 pub const SYSCALL_CHDIR: usize = 80;
 pub const SYSCALL_MKDIR: usize = 83;
 pub const SYSCALL_RMDIR: usize = 84;
 pub const SYSCALL_UNLINK: usize = 87;
-pub const SYSCALL_DUP: usize = 32;
-pub const SYSCALL_DUP2: usize = 33;
 
-const MAX_SYSCALLS: usize = 64;
+const MAX_SYSCALLS: usize = 512;
 
 type SyscallHandler = fn(usize, usize, usize) -> isize;
 
@@ -59,15 +73,27 @@ impl SyscallManager {
         self.register(SYSCALL_WRITE, sys_write);
         self.register(SYSCALL_OPEN, sys_open);
         self.register(SYSCALL_CLOSE, sys_close);
-        self.register(SYSCALL_EXIT, sys_exit);
-        self.register(SYSCALL_GETPID, sys_getpid);
+        self.register(SYSCALL_RT_SIGACTION, sys_rt_sigaction);
+        self.register(SYSCALL_RT_SIGPROCMASK, sys_rt_sigprocmask);
+        self.register(SYSCALL_WRITEV, sys_writev);
         self.register(SYSCALL_BRK, sys_brk);
         self.register(SYSCALL_MMAP, sys_mmap);
         self.register(SYSCALL_MUNMAP, sys_munmap);
+        self.register(SYSCALL_GETUID, sys_getuid);
+        self.register(SYSCALL_GETGID, sys_getgid);
+        self.register(SYSCALL_GETEUID, sys_geteuid);
+        self.register(SYSCALL_GETEGID, sys_getegid);
+        self.register(SYSCALL_SIGALTSTACK, sys_sigaltstack);
         self.register(SYSCALL_CLOCK_GETTIME, sys_clock_gettime);
+        self.register(SYSCALL_ARCH_PRCTL, sys_arch_prctl);
         self.register(SYSCALL_FORK, sys_fork);
         self.register(SYSCALL_EXECVE, sys_execve);
+        self.register(SYSCALL_EXIT, sys_exit);
         self.register(SYSCALL_WAIT4, sys_wait4);
+        self.register(SYSCALL_EXIT_GROUP, sys_exit_group);
+        self.register(SYSCALL_SET_TID_ADDRESS, sys_set_tid_address);
+        self.register(SYSCALL_SET_ROBUST_LIST, sys_set_robust_list);
+        self.register(SYSCALL_PRLIMIT64, sys_prlimit64);
         self.register(SYSCALL_GETCWD, sys_getcwd);
         self.register(SYSCALL_CHDIR, sys_chdir);
         self.register(SYSCALL_MKDIR, sys_mkdir);
@@ -75,6 +101,8 @@ impl SyscallManager {
         self.register(SYSCALL_UNLINK, sys_unlink);
         self.register(SYSCALL_DUP, sys_dup);
         self.register(SYSCALL_DUP2, sys_dup2);
+        self.register(SYSCALL_GETPID, sys_getpid);
+        self.register(SYSCALL_UNAME, sys_uname);
     }
 
     fn register(&mut self, num: usize, handler: SyscallHandler) {
@@ -138,21 +166,49 @@ fn sys_close(_fd: usize, _arg2: usize, _arg3: usize) -> isize {
     0
 }
 
-#[allow(clippy::empty_loop)]
-fn sys_exit(_status: usize, _arg2: usize, _arg3: usize) -> isize {
-    loop {}
+fn sys_exit(status: usize, _arg2: usize, _arg3: usize) -> isize {
+    let pid = crate::process::get_current_pid();
+    let mut table = crate::process::PROCESS_TABLE.lock();
+    table.set_exit_status(pid, status as i32);
+    drop(table);
+    // # Safety: halting from ring-0 after syscall entry is safe
+    unsafe { core::arch::asm!("hlt") };
+    0
 }
 
 fn sys_getpid(_arg1: usize, _arg2: usize, _arg3: usize) -> isize {
     1
 }
 
-fn sys_brk(_addr: usize, _arg2: usize, _arg3: usize) -> isize {
-    0
+fn sys_brk(addr: usize, _arg2: usize, _arg3: usize) -> isize {
+    let pid = crate::process::get_current_pid();
+    let mut table = crate::process::PROCESS_TABLE.lock();
+    let proc = table.get_process_mut(pid).unwrap();
+    if addr == 0 {
+        return proc.brk_end as isize;
+    }
+    if addr > proc.brk_end {
+        let old = proc.brk_end;
+        proc.brk_end = addr;
+        drop(table);
+        crate::elf::map_user_segment(old as u64, addr as u64);
+    }
+    addr as isize
 }
 
-fn sys_mmap(_addr: usize, _len: usize, _prot: usize) -> isize {
-    0
+fn sys_mmap(_addr: usize, len: usize, _prot: usize) -> isize {
+    if len == 0 {
+        return -1;
+    }
+    let len_aligned = (len + 0x1F_FFFF) & !0x1F_FFFF;
+    let pid = crate::process::get_current_pid();
+    let mut table = crate::process::PROCESS_TABLE.lock();
+    let proc = table.get_process_mut(pid).unwrap();
+    let base = proc.mmap_next;
+    proc.mmap_next = base + len_aligned;
+    drop(table);
+    crate::elf::map_user_segment(base as u64, (base + len_aligned) as u64);
+    base as isize
 }
 
 fn sys_munmap(_addr: usize, _len: usize, _arg3: usize) -> isize {
@@ -429,6 +485,76 @@ fn sys_dup(_fd: usize, _arg2: usize, _arg3: usize) -> isize {
 }
 
 fn sys_dup2(_oldfd: usize, _newfd: usize, _arg3: usize) -> isize {
+    0
+}
+
+fn sys_writev(fd: usize, iov_ptr: usize, iovcnt: usize) -> isize {
+    if fd != 1 && fd != 2 {
+        return iovcnt as isize;
+    }
+    let mut total = 0isize;
+    for i in 0..iovcnt.min(16) {
+        // # Safety: iov_ptr comes from user, bounded to 16 entries
+        let iov_entry = (iov_ptr + i * 16) as *const u64;
+        let base = unsafe { *iov_entry } as usize;
+        let len = unsafe { *iov_entry.add(1) } as usize;
+        if base == 0 || len == 0 {
+            continue;
+        }
+        total += sys_write(fd, base, len.min(4096));
+    }
+    total
+}
+
+fn sys_rt_sigaction(_signum: usize, _act: usize, _oldact: usize) -> isize {
+    0
+}
+
+fn sys_rt_sigprocmask(_how: usize, _set: usize, _oldset: usize) -> isize {
+    0
+}
+
+fn sys_sigaltstack(_ss: usize, _oss: usize, _arg3: usize) -> isize {
+    0
+}
+
+fn sys_arch_prctl(_code: usize, _addr: usize, _arg3: usize) -> isize {
+    0
+}
+
+fn sys_set_tid_address(_tidptr: usize, _arg2: usize, _arg3: usize) -> isize {
+    1
+}
+
+fn sys_set_robust_list(_head: usize, _len: usize, _arg3: usize) -> isize {
+    0
+}
+
+fn sys_exit_group(status: usize, _arg2: usize, _arg3: usize) -> isize {
+    sys_exit(status, 0, 0)
+}
+
+fn sys_prlimit64(_pid: usize, _resource: usize, _new_limit: usize) -> isize {
+    0
+}
+
+fn sys_getuid(_arg1: usize, _arg2: usize, _arg3: usize) -> isize {
+    0
+}
+
+fn sys_getgid(_arg1: usize, _arg2: usize, _arg3: usize) -> isize {
+    0
+}
+
+fn sys_geteuid(_arg1: usize, _arg2: usize, _arg3: usize) -> isize {
+    0
+}
+
+fn sys_getegid(_arg1: usize, _arg2: usize, _arg3: usize) -> isize {
+    0
+}
+
+fn sys_uname(_utsname: usize, _arg2: usize, _arg3: usize) -> isize {
     0
 }
 
