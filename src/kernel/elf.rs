@@ -38,34 +38,38 @@ extern "C" {
 /// because no user-mode code is executing yet. `p2_table` lives in BSS at a known
 /// address; accessing it as a `[u64; 512]` via the exported symbol is valid.
 pub fn map_user_segment(vaddr: u64, memsz: u64) {
-    crate::serial::write_str("[elf] map_user_segment: vaddr=0x");
-    for i in (0..16).rev() {
-        let nibble = ((vaddr >> (i * 4)) & 0xF) as u8;
-        crate::serial::write_byte(if nibble < 10 {
-            b'0' + nibble
-        } else {
-            b'a' + (nibble - 10)
-        });
+    if crate::debug::is_debug_enabled() {
+        crate::serial::write_str("[elf] map_user_segment: vaddr=0x");
+        for i in (0..16).rev() {
+            let nibble = ((vaddr >> (i * 4)) & 0xF) as u8;
+            crate::serial::write_byte(if nibble < 10 {
+                b'0' + nibble
+            } else {
+                b'a' + (nibble - 10)
+            });
+        }
+        crate::serial::write_str(" memsz=0x");
+        for i in (0..16).rev() {
+            let nibble = ((memsz >> (i * 4)) & 0xF) as u8;
+            crate::serial::write_byte(if nibble < 10 {
+                b'0' + nibble
+            } else {
+                b'a' + (nibble - 10)
+            });
+        }
+        crate::serial::write_str("\r\n");
     }
-    crate::serial::write_str(" memsz=0x");
-    for i in (0..16).rev() {
-        let nibble = ((memsz >> (i * 4)) & 0xF) as u8;
-        crate::serial::write_byte(if nibble < 10 {
-            b'0' + nibble
-        } else {
-            b'a' + (nibble - 10)
-        });
-    }
-    crate::serial::write_str("\r\n");
 
     let start_entry = (vaddr / P2_ENTRY_SIZE) as usize;
     let end_entry = ((vaddr + memsz).div_ceil(P2_ENTRY_SIZE)) as usize;
     let end_entry = end_entry.min(P2_ENTRIES);
-    crate::serial::write_str("[elf] map_user_segment: P2 entries ");
-    crate::serial::write_byte(b'0' + (start_entry as u8));
-    crate::serial::write_str(" to ");
-    crate::serial::write_byte(b'0' + (end_entry as u8));
-    crate::serial::write_str("\r\n");
+    if crate::debug::is_debug_enabled() {
+        crate::serial::write_str("[elf] map_user_segment: P2 entries ");
+        crate::serial::write_byte(b'0' + (start_entry as u8));
+        crate::serial::write_str(" to ");
+        crate::serial::write_byte(b'0' + (end_entry as u8));
+        crate::serial::write_str("\r\n");
+    }
 
     // # Safety
     // p2_table is the boot-time PD (page directory) exported from boot.S.
@@ -79,9 +83,11 @@ pub fn map_user_segment(vaddr: u64, memsz: u64) {
             .take(end_entry)
             .skip(start_entry)
         {
-            crate::serial::write_str("[elf] map_user_segment: marking P2[");
-            crate::serial::write_byte(b'0' + (i as u8));
-            crate::serial::write_str("] as user-accessible\r\n");
+            if crate::debug::is_debug_enabled() {
+                crate::serial::write_str("[elf] map_user_segment: marking P2[");
+                crate::serial::write_byte(b'0' + (i as u8));
+                crate::serial::write_str("] as user-accessible\r\n");
+            }
             *entry = (i as u64 * P2_ENTRY_SIZE) | P2_FLAGS_USER;
         }
         // Flush TLB by reloading CR3.
@@ -91,7 +97,9 @@ pub fn map_user_segment(vaddr: u64, memsz: u64) {
             out("rax") _,
         );
     }
-    crate::serial::write_str("[elf] map_user_segment: done\r\n");
+    if crate::debug::is_debug_enabled() {
+        crate::serial::write_str("[elf] map_user_segment: done\r\n");
+    }
 }
 
 const USER_STACK_SIZE: usize = 4096 * 8;
@@ -256,13 +264,15 @@ impl ElfLoader {
             }
 
             // With identity mapping in first 1GB, we can load directly to vaddr
-            crate::serial::write_str("[elf] load_segments: loading to vaddr=0x");
-            print_hex_u64(phdr.p_vaddr);
-            crate::serial::write_str(" filesz=");
-            print_hex_u64(phdr.p_filesz);
-            crate::serial::write_str(" memsz=");
-            print_hex_u64(phdr.p_memsz);
-            crate::serial::write_str("\r\n");
+            if crate::debug::is_debug_enabled() {
+                crate::serial::write_str("[elf] load_segments: loading to vaddr=0x");
+                print_hex_u64(phdr.p_vaddr);
+                crate::serial::write_str(" filesz=");
+                print_hex_u64(phdr.p_filesz);
+                crate::serial::write_str(" memsz=");
+                print_hex_u64(phdr.p_memsz);
+                crate::serial::write_str("\r\n");
+            }
 
             // Copy file data
             let src_offset = phdr.p_offset as usize;
@@ -285,9 +295,14 @@ impl ElfLoader {
                     *dst_ptr.add(filesz + i) = 0;
                 }
             }
-            crate::serial::write_str("[elf] load_segments: segment loaded\r\n");
+            if crate::debug::is_debug_enabled() {
+                crate::serial::write_str("[elf] load_segments: segment loaded\r\n");
+            }
             // Debug: dump first few bytes at entry point
-            if ehdr.e_entry >= phdr.p_vaddr && ehdr.e_entry < phdr.p_vaddr + phdr.p_memsz {
+            if crate::debug::is_debug_enabled()
+                && ehdr.e_entry >= phdr.p_vaddr
+                && ehdr.e_entry < phdr.p_vaddr + phdr.p_memsz
+            {
                 crate::serial::write_str("[elf] load_segments: entry point bytes: ");
                 let entry_ptr = ehdr.e_entry as *const u8;
                 for i in 0..8 {
@@ -442,24 +457,40 @@ pub fn setup_user_context(
     phys_base: *mut u8,
     args: &[&[u8]],
 ) -> Result<UserContext, &'static str> {
-    crate::serial::write_str("[elf] setup_user_context: creating loader\r\n");
+    if crate::debug::is_debug_enabled() {
+        crate::serial::write_str("[elf] setup_user_context: creating loader\r\n");
+    }
     let mut loader = ElfLoader::new();
-    crate::serial::write_str("[elf] setup_user_context: calling load\r\n");
+    if crate::debug::is_debug_enabled() {
+        crate::serial::write_str("[elf] setup_user_context: calling load\r\n");
+    }
     let loaded = loader.load(elf_data, allocator, phys_base)?;
-    crate::serial::write_str("[elf] setup_user_context: ELF loaded\r\n");
+    if crate::debug::is_debug_enabled() {
+        crate::serial::write_str("[elf] setup_user_context: ELF loaded\r\n");
+    }
 
-    crate::serial::write_str("[elf] setup_user_context: creating user stack\r\n");
+    if crate::debug::is_debug_enabled() {
+        crate::serial::write_str("[elf] setup_user_context: creating user stack\r\n");
+    }
     let mut user_stack = UserStack::new(allocator, phys_base)?;
-    crate::serial::write_str("[elf] setup_user_context: user stack created\r\n");
+    if crate::debug::is_debug_enabled() {
+        crate::serial::write_str("[elf] setup_user_context: user stack created\r\n");
+    }
 
     // Mark the user stack region as user-accessible
-    crate::serial::write_str("[elf] setup_user_context: marking stack as user-accessible\r\n");
+    if crate::debug::is_debug_enabled() {
+        crate::serial::write_str("[elf] setup_user_context: marking stack as user-accessible\r\n");
+    }
     map_user_segment(user_stack.base as u64, user_stack.size as u64);
-    crate::serial::write_str("[elf] setup_user_context: stack marked user-accessible\r\n");
+    if crate::debug::is_debug_enabled() {
+        crate::serial::write_str("[elf] setup_user_context: stack marked user-accessible\r\n");
+    }
 
     let mut arg_addrs = [0u64; 8];
     let argc = args.len().min(8);
-    crate::serial::write_str("[elf] setup_user_context: pushing args\r\n");
+    if crate::debug::is_debug_enabled() {
+        crate::serial::write_str("[elf] setup_user_context: pushing args\r\n");
+    }
     // Push argument strings (in reverse order so argv[0] is at highest address)
     for i in (0..argc).rev() {
         let ptr = user_stack.push_arg(args[i])?;
@@ -477,7 +508,9 @@ pub fn setup_user_context(
     // [argc]
     // [...rest of stack...]
 
-    crate::serial::write_str("[elf] setup_user_context: pushing arg pointers\r\n");
+    if crate::debug::is_debug_enabled() {
+        crate::serial::write_str("[elf] setup_user_context: pushing arg pointers\r\n");
+    }
     // Push NULL for envp terminator
     user_stack.push_u64(0).ok();
     // Push NULL for argv terminator
@@ -489,7 +522,9 @@ pub fn setup_user_context(
     // Push argc
     user_stack.push_u64(argc as u64).ok();
 
-    crate::serial::write_str("[elf] setup_user_context: done!\r\n");
+    if crate::debug::is_debug_enabled() {
+        crate::serial::write_str("[elf] setup_user_context: done!\r\n");
+    }
     Ok(UserContext {
         entry: loaded.entry,
         stack_ptr: user_stack.sp(),
@@ -503,7 +538,9 @@ pub fn start_user_program(
     user_cs: SegmentSelector,
     user_ss: SegmentSelector,
 ) -> ! {
-    crate::serial::write_str("[elf] start_user_program: setting up TSS\r\n");
+    if crate::debug::is_debug_enabled() {
+        crate::serial::write_str("[elf] start_user_program: setting up TSS\r\n");
+    }
     // Set up the TSS ring-0 stack so that any ring-3 → ring-0 transition
     // (syscall int 0x80, page fault, etc.) has a valid kernel stack to switch to.
     // # Safety
@@ -513,9 +550,13 @@ pub fn start_user_program(
     unsafe {
         crate::gdt::setup_tss_stack(x86_64::VirtAddr::new(&boot_stack_top as *const u8 as u64));
     }
-    crate::serial::write_str("[elf] start_user_program: TSS ready\r\n");
+    if crate::debug::is_debug_enabled() {
+        crate::serial::write_str("[elf] start_user_program: TSS ready\r\n");
+    }
 
-    crate::serial::write_str("[elf] start_user_program: building iretq frame\r\n");
+    if crate::debug::is_debug_enabled() {
+        crate::serial::write_str("[elf] start_user_program: building iretq frame\r\n");
+    }
     // # Safety
     // Constructs a valid iretq frame to transition from ring 0 to ring 3.
     // The iretq frame is pushed onto the CURRENT (kernel) stack, not user stack.
@@ -531,32 +572,36 @@ pub fn start_user_program(
     let cs_val = ((user_cs.0 & !3) as u64) | 3;
     let rip_val = context.entry;
 
-    crate::serial::write_str("[elf] selector debug: user_ss.0=0x");
-    print_hex_u64(user_ss.0 as u64);
-    crate::serial::write_str(" user_cs.0=0x");
-    print_hex_u64(user_cs.0 as u64);
-    crate::serial::write_str("\r\n");
+    if crate::debug::is_debug_enabled() {
+        crate::serial::write_str("[elf] selector debug: user_ss.0=0x");
+        print_hex_u64(user_ss.0 as u64);
+        crate::serial::write_str(" user_cs.0=0x");
+        print_hex_u64(user_cs.0 as u64);
+        crate::serial::write_str("\r\n");
 
-    crate::serial::write_str("[elf] iretq frame dump:\r\n");
-    crate::serial::write_str("  RIP: 0x");
-    print_hex_u64(rip_val);
-    crate::serial::write_str("\r\n  CS: 0x");
-    print_hex_u64(cs_val);
-    crate::serial::write_str("\r\n  RFLAGS: 0x202\r\n  RSP: 0x");
-    print_hex_u64(rsp_val);
-    crate::serial::write_str("\r\n  SS: 0x");
-    print_hex_u64(ss_val);
-    crate::serial::write_str("\r\n");
-    crate::serial::write_str("[elf] start_user_program: executing iretq to ring 3...\r\n");
+        crate::serial::write_str("[elf] iretq frame dump:\r\n");
+        crate::serial::write_str("  RIP: 0x");
+        print_hex_u64(rip_val);
+        crate::serial::write_str("\r\n  CS: 0x");
+        print_hex_u64(cs_val);
+        crate::serial::write_str("\r\n  RFLAGS: 0x202\r\n  RSP: 0x");
+        print_hex_u64(rsp_val);
+        crate::serial::write_str("\r\n  SS: 0x");
+        print_hex_u64(ss_val);
+        crate::serial::write_str("\r\n");
+        crate::serial::write_str("[elf] start_user_program: executing iretq to ring 3...\r\n");
+    }
     // Test: verify we can read from the entry point address
     // # Safety
     // Reading from entry point address to verify it's mapped and accessible.
     let test_byte = unsafe { *(context.entry as *const u8) };
-    crate::serial::write_str(
-        "[elf] start_user_program: verified entry point readable, first byte=0x",
-    );
-    print_hex_u64(test_byte as u64);
-    crate::serial::write_str("\r\n");
+    if crate::debug::is_debug_enabled() {
+        crate::serial::write_str(
+            "[elf] start_user_program: verified entry point readable, first byte=0x",
+        );
+        print_hex_u64(test_byte as u64);
+        crate::serial::write_str("\r\n");
+    }
 
     // Calculate argc and argv for System V x86_64 ABI
     // Stack layout at context.stack_ptr (top of stack, growing down):
@@ -575,16 +620,18 @@ pub fn start_user_program(
     // argv starts right after argc
     let argv_ptr = context.stack_ptr + 8;
 
-    crate::serial::write_str("[elf] argc=");
-    print_hex_u64(argc);
-    crate::serial::write_str(" argv=0x");
-    print_hex_u64(argv_ptr);
+    if crate::debug::is_debug_enabled() {
+        crate::serial::write_str("[elf] argc=");
+        print_hex_u64(argc);
+        crate::serial::write_str(" argv=0x");
+        print_hex_u64(argv_ptr);
 
-    // Debug: print first few argv entries
-    crate::serial::write_str("\r\n[elf] argv[0]=0x");
-    let argv0 = unsafe { *(argv_ptr as *const u64) };
-    print_hex_u64(argv0);
-    crate::serial::write_str("\r\n");
+        // Debug: print first few argv entries
+        crate::serial::write_str("\r\n[elf] argv[0]=0x");
+        let argv0 = unsafe { *(argv_ptr as *const u64) };
+        print_hex_u64(argv0);
+        crate::serial::write_str("\r\n");
+    }
 
     // # Safety
     // Constructs a valid iretq frame to transition from ring 0 to ring 3.

@@ -242,6 +242,7 @@ make test
 
 - [Roadmap](docs/ROADMAP.md)
 - [Features](docs/FEATURES.md)
+- [Debug Flag](docs/DEBUG.md)
 - [Changelog](docs/CHANGELOG.md)
 - [Internationalization](docs/I18N.md)
 - [Funding](docs/FUNDING.md)

@@ -21,7 +21,9 @@ static FILE_INDEX: Mutex<heapless::Vec<FileEntry, 16>> = Mutex::new(heapless::Ve
 
 /// Initialize ramdisk file index from multiboot2 modules
 pub fn init_from_modules() {
-    crate::serial::write_str("[ramdisk] initializing file index from modules\r\n");
+    if crate::debug::is_debug_enabled() {
+        crate::serial::write_str("[ramdisk] initializing file index from modules\r\n");
+    }
 
     let mut index = FILE_INDEX.lock();
 
@@ -36,14 +38,18 @@ pub fn init_from_modules() {
         crate::serial::write_str("[ramdisk] ERROR: failed to register /init\r\n");
         return;
     }
-    crate::serial::write_str("[ramdisk] registered /init → embedded USER_INIT_ELF\r\n");
+    if crate::debug::is_debug_enabled() {
+        crate::serial::write_str("[ramdisk] registered /init → embedded USER_INIT_ELF\r\n");
+    }
 
     // Register modules from multiboot2
     // Module 0 is expected to be busybox with cmdline "busybox"
     if let Some(module) = crate::multiboot2::get_module_by_index(0) {
-        crate::serial::write_str("[ramdisk] found module 0: ");
-        crate::serial::write_str(module.cmdline);
-        crate::serial::write_str("\r\n");
+        if crate::debug::is_debug_enabled() {
+            crate::serial::write_str("[ramdisk] found module 0: ");
+            crate::serial::write_str(module.cmdline);
+            crate::serial::write_str("\r\n");
+        }
 
         // Register as /bin/busybox
         if index
@@ -56,7 +62,9 @@ pub fn init_from_modules() {
             crate::serial::write_str("[ramdisk] ERROR: file index full\r\n");
             return;
         }
-        crate::serial::write_str("[ramdisk] registered /bin/busybox → module 0\r\n");
+        if crate::debug::is_debug_enabled() {
+            crate::serial::write_str("[ramdisk] registered /bin/busybox → module 0\r\n");
+        }
 
         // Also register as /bin/sh (symlink equivalent)
         if index
@@ -65,50 +73,63 @@ pub fn init_from_modules() {
                 source: FileSource::Module(0),
             })
             .is_ok()
+            && crate::debug::is_debug_enabled()
         {
             crate::serial::write_str("[ramdisk] registered /bin/sh → module 0\r\n");
         }
-    } else {
+    } else if crate::debug::is_debug_enabled() {
         crate::serial::write_str("[ramdisk] WARNING: no modules found\r\n");
     }
 
     let count = index.len();
-    crate::serial::write_str("[ramdisk] initialized with ");
-    print_decimal(count);
-    crate::serial::write_str(" files\r\n");
+    if crate::debug::is_debug_enabled() {
+        crate::serial::write_str("[ramdisk] initialized with ");
+        print_decimal(count);
+        crate::serial::write_str(" files\r\n");
+    }
 }
 
 /// Lookup file by path, returns slice to file data (zero-copy)
 pub fn lookup_file(path: &str) -> Option<&'static [u8]> {
-    crate::serial::write_str("[ramdisk] lookup: ");
-    crate::serial::write_str(path);
-    crate::serial::write_str("\r\n");
+    if crate::debug::is_debug_enabled() {
+        crate::serial::write_str("[ramdisk] lookup: ");
+        crate::serial::write_str(path);
+        crate::serial::write_str("\r\n");
+    }
 
     let index = FILE_INDEX.lock();
     for entry in index.iter() {
         if entry.path == path {
-            crate::serial::write_str("[ramdisk] found: ");
-            crate::serial::write_str(entry.path);
-            crate::serial::write_str("\r\n");
+            if crate::debug::is_debug_enabled() {
+                crate::serial::write_str("[ramdisk] found: ");
+                crate::serial::write_str(entry.path);
+                crate::serial::write_str("\r\n");
+            }
 
             return match entry.source {
                 FileSource::Module(idx) => {
-                    crate::serial::write_str("[ramdisk] loading from module ");
-                    print_decimal(idx);
-                    crate::serial::write_str("\r\n");
+                    if crate::debug::is_debug_enabled() {
+                        crate::serial::write_str("[ramdisk] loading from module ");
+                        print_decimal(idx);
+                        crate::serial::write_str("\r\n");
+                    }
                     crate::multiboot2::get_module_by_index(idx).map(|m| m.as_slice())
                 }
                 FileSource::Embedded(data) => {
-                    crate::serial::write_str("[ramdisk] loading from embedded data\r\n");
+                    if crate::debug::is_debug_enabled() {
+                        crate::serial::write_str("[ramdisk] loading from embedded data\r\n");
+                    }
                     Some(data)
                 }
             };
         }
     }
 
-    crate::serial::write_str("[ramdisk] not found: ");
-    crate::serial::write_str(path);
-    crate::serial::write_str("\r\n");
+    if crate::debug::is_debug_enabled() {
+        crate::serial::write_str("[ramdisk] not found: ");
+        crate::serial::write_str(path);
+        crate::serial::write_str("\r\n");
+    }
     None
 }
 

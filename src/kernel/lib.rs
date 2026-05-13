@@ -52,6 +52,7 @@ pub mod serial;
 
 pub mod allocator;
 pub mod ata;
+pub mod debug;
 pub mod driver;
 pub mod e1000;
 pub mod elf;
