@@ -57,23 +57,20 @@ jobs:
           DIFF_SIZE=$(wc -c < /tmp/pr_diff.txt)
           echo "Diff size: $DIFF_SIZE bytes"
 
-          # Create a simple review script that won't trigger tool execution
-          cat > /tmp/review.txt << 'REVIEW_PROMPT'
-Analyze this Rust kernel code diff. Check for:
-- Memory safety issues
-- Unsafe blocks without justification
-- No_std violations (Vec, String, heap)
-- Architecture correctness
-- Commit message format
+          # Create review prompt
+          REVIEW_PROMPT="Analyze this Rust kernel code diff. Check for:
+          - Memory safety issues
+          - Unsafe blocks without justification
+          - No_std violations (Vec, String, heap)
+          - Architecture correctness
+          - Commit message format
 
-Output ONLY the word APPROVED or REJECTED on first line, then brief reason.
-REVIEW_PROMPT
+          Output ONLY the word APPROVED or REJECTED on first line, then brief reason.
 
-          # Append the diff
-          cat /tmp/pr_diff.txt >> /tmp/review.txt
+          Diff:"
 
-          # Run opencode with explicit instruction to just output text
-          REVIEW_RESULT=$(timeout 120 opencode run -m opencode/minimax-m2.5-free "$(cat /tmp/review.txt)" 2>&1 | head -20)
+          # Run opencode with review prompt + diff
+          REVIEW_RESULT=$(timeout 120 opencode run -m opencode/minimax-m2.5-free "$REVIEW_PROMPT $(cat /tmp/pr_diff.txt)" 2>&1 | head -20)
 
           echo "=== Review Result ==="
           echo "$REVIEW_RESULT"
