@@ -1,261 +1,182 @@
 // AIOS Ramdisk Filesystem
 //
-// Model: opencode/minimax-m2.5-free
-// Tool: opencode
-// Prompt: Implement ramdisk filesystem for AIOS x86_64 kernel in Rust no_std.
+// Model: claude-sonnet-4-6
+// Tool: claude-code
+// Prompt: Refactor ramdisk to path→module mapping for busybox integration
 
-const RAMDISK_SIZE: usize = 65536;
-#[allow(dead_code)]
-const BLOCK_SIZE: usize = 512;
+use spin::Mutex;
 
-use core::cmp;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum FileType {
-    #[default]
-    Regular = 1,
-    Directory = 2,
+// File index entry: maps path to module index or embedded data
+enum FileSource {
+    Module(usize),           // Index into multiboot2 modules
+    Embedded(&'static [u8]), // Embedded data (e.g., USER_INIT_ELF)
 }
 
-#[derive(Debug, Clone, Copy, Default)]
-pub struct Inode {
-    pub ino: u32,
-    pub file_type: FileType,
-    pub size: u32,
+struct FileEntry {
+    path: &'static str,
+    source: FileSource,
 }
 
-impl Inode {
-    pub fn new(ino: u32) -> Self {
-        Self {
-            ino,
-            file_type: FileType::Regular,
-            size: 0,
+static FILE_INDEX: Mutex<heapless::Vec<FileEntry, 16>> = Mutex::new(heapless::Vec::new());
+
+/// Initialize ramdisk file index from multiboot2 modules
+pub fn init_from_modules() {
+    crate::serial::write_str("[ramdisk] initializing file index from modules\r\n");
+
+    let mut index = FILE_INDEX.lock();
+
+    // Register /init as embedded USER_INIT_ELF (fallback)
+    if index
+        .push(FileEntry {
+            path: "/init",
+            source: FileSource::Embedded(crate::user_init::USER_INIT_ELF),
+        })
+        .is_err()
+    {
+        crate::serial::write_str("[ramdisk] ERROR: failed to register /init\r\n");
+        return;
+    }
+    crate::serial::write_str("[ramdisk] registered /init → embedded USER_INIT_ELF\r\n");
+
+    // Register modules from multiboot2
+    // Module 0 is expected to be busybox with cmdline "busybox"
+    if let Some(module) = crate::multiboot2::get_module_by_index(0) {
+        crate::serial::write_str("[ramdisk] found module 0: ");
+        crate::serial::write_str(module.cmdline);
+        crate::serial::write_str("\r\n");
+
+        // Register as /bin/busybox
+        if index
+            .push(FileEntry {
+                path: "/bin/busybox",
+                source: FileSource::Module(0),
+            })
+            .is_err()
+        {
+            crate::serial::write_str("[ramdisk] ERROR: file index full\r\n");
+            return;
+        }
+        crate::serial::write_str("[ramdisk] registered /bin/busybox → module 0\r\n");
+
+        // Also register as /bin/sh (symlink equivalent)
+        if index
+            .push(FileEntry {
+                path: "/bin/sh",
+                source: FileSource::Module(0),
+            })
+            .is_ok()
+        {
+            crate::serial::write_str("[ramdisk] registered /bin/sh → module 0\r\n");
+        }
+    } else {
+        crate::serial::write_str("[ramdisk] WARNING: no modules found\r\n");
+    }
+
+    let count = index.len();
+    crate::serial::write_str("[ramdisk] initialized with ");
+    print_decimal(count);
+    crate::serial::write_str(" files\r\n");
+}
+
+/// Lookup file by path, returns slice to file data (zero-copy)
+pub fn lookup_file(path: &str) -> Option<&'static [u8]> {
+    crate::serial::write_str("[ramdisk] lookup: ");
+    crate::serial::write_str(path);
+    crate::serial::write_str("\r\n");
+
+    let index = FILE_INDEX.lock();
+    for entry in index.iter() {
+        if entry.path == path {
+            crate::serial::write_str("[ramdisk] found: ");
+            crate::serial::write_str(entry.path);
+            crate::serial::write_str("\r\n");
+
+            return match entry.source {
+                FileSource::Module(idx) => {
+                    crate::serial::write_str("[ramdisk] loading from module ");
+                    print_decimal(idx);
+                    crate::serial::write_str("\r\n");
+                    crate::multiboot2::get_module_by_index(idx).map(|m| m.as_slice())
+                }
+                FileSource::Embedded(data) => {
+                    crate::serial::write_str("[ramdisk] loading from embedded data\r\n");
+                    Some(data)
+                }
+            };
         }
     }
 
-    pub fn is_dir(&self) -> bool {
-        self.file_type == FileType::Directory
+    crate::serial::write_str("[ramdisk] not found: ");
+    crate::serial::write_str(path);
+    crate::serial::write_str("\r\n");
+    None
+}
+
+/// List all files in ramdisk (for debugging)
+pub fn list_files() {
+    crate::serial::write_str("[ramdisk] file index:\r\n");
+
+    // Copy entries to stack array to avoid holding lock during I/O
+    let mut entries_copy: heapless::Vec<(&'static str, bool, usize), 16> = heapless::Vec::new();
+    {
+        let index = FILE_INDEX.lock();
+        for entry in index.iter() {
+            let (is_module, idx) = match entry.source {
+                FileSource::Module(i) => (true, i),
+                FileSource::Embedded(_) => (false, 0),
+            };
+            let _ = entries_copy.push((entry.path, is_module, idx));
+        }
+    } // Lock released here
+
+    // Now print without holding the lock
+    for (path, is_module, idx) in entries_copy.iter() {
+        crate::serial::write_str("  ");
+        crate::serial::write_str(path);
+        if *is_module {
+            crate::serial::write_str(" → module ");
+            print_decimal(*idx);
+        } else {
+            crate::serial::write_str(" → embedded");
+        }
+        crate::serial::write_str("\r\n");
     }
 }
 
-#[derive(Debug, Clone, Copy, Default)]
-pub struct DirEntry {
-    pub ino: u32,
-}
+fn print_decimal(val: usize) {
+    if val == 0 {
+        crate::serial::write_byte(b'0');
+        return;
+    }
 
-#[derive(Debug, Clone, Copy)]
-pub struct Ramdisk {
-    pub data: [u8; RAMDISK_SIZE],
-}
+    let mut buf = [0u8; 20];
+    let mut n = val;
+    let mut i = 0;
 
-impl Default for Ramdisk {
-    fn default() -> Self {
-        Self {
-            data: [0u8; RAMDISK_SIZE],
-        }
+    while n > 0 {
+        buf[i] = b'0' + (n % 10) as u8;
+        n /= 10;
+        i += 1;
+    }
+
+    while i > 0 {
+        i -= 1;
+        crate::serial::write_byte(buf[i]);
     }
 }
-
-impl Ramdisk {
-    pub const fn new() -> Self {
-        Self {
-            data: [0u8; RAMDISK_SIZE],
-        }
-    }
-
-    pub fn init(&mut self) {
-        // Initialize ramdisk with a simple filesystem structure
-        // For now, we'll just zero out the data (already done by Default)
-        // In a real implementation, we might set up a root directory, etc.
-    }
-
-    /// Read data from the ramdisk
-    pub fn read(&self, ino: u32, _offset: u32, buf: &mut [u8]) -> Option<usize> {
-        // Simple implementation: treat ino as block number for demonstration
-        // In a real filesystem, we'd look up the inode to find data blocks
-        let block_index = ino as usize;
-        let block_start = block_index * BLOCK_SIZE;
-
-        // Check bounds
-        if block_start >= RAMDISK_SIZE {
-            return None;
-        }
-
-        let available = RAMDISK_SIZE - block_start;
-        let to_copy = cmp::min(buf.len(), available);
-
-        if to_copy == 0 {
-            return Some(0);
-        }
-
-        let end = cmp::min(block_start + to_copy, RAMDISK_SIZE);
-        buf[..to_copy].copy_from_slice(&self.data[block_start..end]);
-        Some(to_copy)
-    }
-
-    /// Write data to the ramdisk
-    pub fn write(&mut self, ino: u32, _offset: u32, data: &[u8]) -> Option<usize> {
-        // Simple implementation: treat ino as block number for demonstration
-        let block_index = ino as usize;
-        let block_start = block_index * BLOCK_SIZE;
-
-        // Check bounds
-        if block_start >= RAMDISK_SIZE {
-            return None;
-        }
-
-        let available = RAMDISK_SIZE - block_start;
-        let to_copy = cmp::min(data.len(), available);
-
-        if to_copy == 0 {
-            return Some(0);
-        }
-
-        let end = cmp::min(block_start + to_copy, RAMDISK_SIZE);
-        self.data[block_start..end].copy_from_slice(&data[..to_copy]);
-        Some(to_copy)
-    }
-}
-
-pub static RAMDISK: spin::Mutex<Ramdisk> = spin::Mutex::new(Ramdisk {
-    data: [0u8; RAMDISK_SIZE],
-});
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_ramdisk_new() {
-        let rd = Ramdisk::new();
-        assert_eq!(rd.data[0], 0);
+    fn test_file_entry_size() {
+        // Verify FileEntry fits in expected memory
+        assert!(core::mem::size_of::<FileEntry>() <= 32);
     }
 
     #[test]
-    fn test_init() {
-        let mut rd = Ramdisk::new();
-        rd.init();
-    }
-
-    #[test]
-    fn test_inode_new() {
-        let inode = Inode::new(5);
-        assert_eq!(inode.ino, 5);
-    }
-
-    #[test]
-    fn test_inode_is_dir() {
-        let mut inode = Inode::new(1);
-        inode.file_type = FileType::Directory;
-        assert!(inode.is_dir());
-    }
-
-    #[test]
-    fn test_file_type() {
-        assert_eq!(FileType::Regular as u8, 1);
-    }
-
-    #[test]
-    fn test_ramdisk_size() {
-        assert_eq!(RAMDISK_SIZE, 65536);
-    }
-
-    #[test]
-    fn test_block_size() {
-        assert_eq!(BLOCK_SIZE, 512);
-    }
-
-    #[test]
-    fn test_init_fn() {
-        let mut ramdisk = Ramdisk::new();
-        ramdisk.init();
-    }
-
-    #[test]
-    fn test_read_write_basic() {
-        let mut ramdisk = Ramdisk::new();
-        let write_data = b"Hello, Ramdisk!";
-        let mut read_buf = [0u8; 32];
-
-        // Write data to block 0
-        let write_result = ramdisk.write(0, 0, write_data);
-        assert_eq!(write_result, Some(write_data.len()));
-
-        // Read data back from block 0
-        let read_result = ramdisk.read(0, 0, &mut read_buf);
-        assert_eq!(read_result, Some(write_data.len()));
-        assert_eq!(&read_buf[..write_data.len()], write_data);
-    }
-
-    #[test]
-    fn test_read_write_offset() {
-        let mut ramdisk = Ramdisk::new();
-        let write_data = b"Offset test";
-        let mut read_buf = [0u8; 16];
-
-        // Write data with offset
-        let write_result = ramdisk.write(0, 5, write_data);
-        assert_eq!(write_result, Some(write_data.len()));
-
-        // Read data with matching offset
-        let read_result = ramdisk.read(0, 5, &mut read_buf);
-        assert_eq!(read_result, Some(write_data.len()));
-        assert_eq!(&read_buf[..write_data.len()], write_data);
-
-        // Read data without offset should get zeros
-        let mut zero_buf = [0u8; 10];
-        let zero_result = ramdisk.read(0, 0, &mut zero_buf);
-        assert_eq!(zero_result, Some(5)); // First 5 bytes should be zero
-        assert_eq!(&zero_buf[..5], &[0u8; 5]);
-    }
-
-    #[test]
-    fn test_read_write_bounds() {
-        let mut ramdisk = Ramdisk::new();
-        let data = [0u8; 100];
-
-        // Write at valid position
-        let result = ramdisk.write(0, 0, &data);
-        assert_eq!(result, Some(data.len()));
-
-        // Write at exactly the end should succeed with 0 bytes
-        let result = ramdisk.write(0, RAMDISK_SIZE as u32, &data);
-        assert_eq!(result, Some(0));
-
-        // Write past the end should fail
-        let result = ramdisk.write(0, (RAMDISK_SIZE + 1) as u32, &data);
-        assert_eq!(result, None);
-
-        // Write that goes past end should truncate
-        let result = ramdisk.write(0, (RAMDISK_SIZE - 50) as u32, &[0u8; 100]);
-        assert_eq!(result, Some(50)); // Only 50 bytes fit
-
-        // Read bounds checking
-        let mut buf = [0u8; 10];
-        let result = ramdisk.read(0, RAMDISK_SIZE as u32, &mut buf);
-        assert_eq!(result, Some(0));
-
-        let result = ramdisk.read(0, (RAMDISK_SIZE + 5) as u32, &mut buf);
-        assert_eq!(result, None);
-    }
-
-    #[test]
-    fn test_read() {
-        let ramdisk = Ramdisk::new();
-        let mut buf = [0u8; 512];
-        assert!(ramdisk.read(1, 0, &mut buf).is_none());
-    }
-
-    #[test]
-    fn test_write() {
-        let ramdisk = Ramdisk::new();
-        let data = &[0u8; 512];
-        assert!(ramdisk.write(1, 0, data).is_none());
-    }
-
-    #[test]
-    fn test_direntry() {
-        let entry = DirEntry::default();
-        assert_eq!(entry.ino, 0);
+    fn test_file_source_size() {
+        assert!(core::mem::size_of::<FileSource>() <= 16);
     }
 }

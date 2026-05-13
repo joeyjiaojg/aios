@@ -460,20 +460,34 @@ pub fn setup_user_context(
     let mut arg_addrs = [0u64; 8];
     let argc = args.len().min(8);
     crate::serial::write_str("[elf] setup_user_context: pushing args\r\n");
+    // Push argument strings (in reverse order so argv[0] is at highest address)
     for i in (0..argc).rev() {
         let ptr = user_stack.push_arg(args[i])?;
         arg_addrs[i] = ptr as u64;
     }
 
+    // System V ABI stack layout (high to low address):
+    // [argument strings]
+    // [NULL]           <- envp[0]
+    // [NULL]           <- argv[argc]
+    // [argv[argc-1]]
+    // ...
+    // [argv[1]]
+    // [argv[0]]
+    // [argc]
+    // [...rest of stack...]
+
     crate::serial::write_str("[elf] setup_user_context: pushing arg pointers\r\n");
-    for arg_addr in arg_addrs.iter().take(argc) {
-        user_stack.push_u64(*arg_addr).ok();
+    // Push NULL for envp terminator
+    user_stack.push_u64(0).ok();
+    // Push NULL for argv terminator
+    user_stack.push_u64(0).ok();
+    // Push argv pointers in reverse order (so argv[0] is lowest)
+    for i in (0..argc).rev() {
+        user_stack.push_u64(arg_addrs[i]).ok();
     }
-    user_stack.push_u64(0).ok();
-
+    // Push argc
     user_stack.push_u64(argc as u64).ok();
-
-    user_stack.push_u64(0).ok();
 
     crate::serial::write_str("[elf] setup_user_context: done!\r\n");
     Ok(UserContext {
@@ -544,6 +558,34 @@ pub fn start_user_program(
     print_hex_u64(test_byte as u64);
     crate::serial::write_str("\r\n");
 
+    // Calculate argc and argv for System V x86_64 ABI
+    // Stack layout at context.stack_ptr (top of stack, growing down):
+    //   [argc]         <- stack_ptr (rsp)
+    //   [argv[0]]      <- stack_ptr + 8
+    //   [argv[1]]      <- stack_ptr + 16
+    //   ...
+    //   [NULL]         <- argv terminator
+    //   [NULL]         <- envp terminator
+    //   [argument strings...]
+
+    // argc is at the top of stack
+    let argc_ptr = context.stack_ptr as *const u64;
+    let argc = unsafe { *argc_ptr };
+
+    // argv starts right after argc
+    let argv_ptr = (context.stack_ptr + 8) as u64;
+
+    crate::serial::write_str("[elf] argc=");
+    print_hex_u64(argc);
+    crate::serial::write_str(" argv=0x");
+    print_hex_u64(argv_ptr);
+
+    // Debug: print first few argv entries
+    crate::serial::write_str("\r\n[elf] argv[0]=0x");
+    let argv0 = unsafe { *(argv_ptr as *const u64) };
+    print_hex_u64(argv0);
+    crate::serial::write_str("\r\n");
+
     // # Safety
     // Constructs a valid iretq frame to transition from ring 0 to ring 3.
     // The iretq frame is pushed onto the CURRENT (kernel) stack, not user stack.
@@ -553,6 +595,7 @@ pub fn start_user_program(
     //   RFLAGS (IF=1, reserved bit 1)
     //   RSP (user stack pointer)
     //   SS  (user data selector with RPL=3)
+    // Also sets rdi=argc, rsi=argv, rdx=0 (no envp) for System V ABI
     unsafe {
         // Push iretq frame onto kernel stack (current RSP).
         // Push in reverse order so iretq pops RIP first.
@@ -565,11 +608,16 @@ pub fn start_user_program(
             "push r11",
             "push {cs}",           // CS
             "push {rip}",          // RIP
+            "mov rdi, {argc}",     // System V ABI: rdi = argc
+            "mov rsi, {argv}",     // System V ABI: rsi = argv
+            "xor rdx, rdx",        // System V ABI: rdx = envp (NULL)
             "iretq",
             ss = in(reg) ss_val,
             rsp = in(reg) rsp_val,
             cs = in(reg) cs_val,
             rip = in(reg) rip_val,
+            argc = in(reg) argc,
+            argv = in(reg) argv_ptr,
             options(noreturn)
         );
     }

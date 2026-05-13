@@ -252,10 +252,14 @@ fn sys_execve(path_ptr: usize, _argv: usize, _envp: usize) -> isize {
 
     // Read ELF from ramdisk into buffer
     // # Safety
-    // RAMDISK lock ensures exclusive access, and we only read up to buffer size
+    // TODO: Implement file read from new ramdisk format
+    // For now, return error since ramdisk was refactored to file index
+    /*
     let ramdisk = crate::ramdisk::RAMDISK.lock();
     let bytes_read = ramdisk.read(block_num, 0, &mut elf_data).unwrap_or(0);
     drop(ramdisk);
+    */
+    let bytes_read = 0;
 
     if bytes_read < 64 {
         return -1;
@@ -374,12 +378,14 @@ fn sys_mkdir(path_ptr: usize, _mode: usize, _arg3: usize) -> isize {
     let path_len = path_bytes.iter().position(|&b| b == 0).unwrap_or(256);
 
     let ino = simple_hash(&path_bytes[..path_len]) as u32;
-    let mut ramdisk = crate::ramdisk::RAMDISK.lock();
-    if ramdisk.write(ino, 0, b"[DIR]").is_some() {
-        0
-    } else {
-        -1
-    }
+    // TODO: Implement mkdir in new ramdisk format
+    // let mut ramdisk = crate::ramdisk::RAMDISK.lock();
+    // if ramdisk.write(ino, 0, b"[DIR]").is_some() {
+    //     0
+    // } else {
+    //     -1
+    // }
+    -1 // Not implemented
 }
 
 fn sys_rmdir(path_ptr: usize, _arg2: usize, _arg3: usize) -> isize {
@@ -396,13 +402,8 @@ fn sys_rmdir(path_ptr: usize, _arg2: usize, _arg3: usize) -> isize {
     let path_len = path_bytes.iter().position(|&b| b == 0).unwrap_or(256);
     let ino = simple_hash(&path_bytes[..path_len]) as u32;
 
-    let mut ramdisk = crate::ramdisk::RAMDISK.lock();
-    let zero_buf = [0u8; 512];
-    if ramdisk.write(ino, 0, &zero_buf).is_some() {
-        0
-    } else {
-        -1
-    }
+    // TODO: Implement in new ramdisk format
+    -1 // Not implemented
 }
 
 fn sys_unlink(path_ptr: usize, _arg2: usize, _arg3: usize) -> isize {
@@ -419,13 +420,8 @@ fn sys_unlink(path_ptr: usize, _arg2: usize, _arg3: usize) -> isize {
     let path_len = path_bytes.iter().position(|&b| b == 0).unwrap_or(256);
     let ino = simple_hash(&path_bytes[..path_len]) as u32;
 
-    let mut ramdisk = crate::ramdisk::RAMDISK.lock();
-    let zero_buf = [0u8; 512];
-    if ramdisk.write(ino, 0, &zero_buf).is_some() {
-        0
-    } else {
-        -1
-    }
+    // TODO: Implement in new ramdisk format
+    -1 // Not implemented
 }
 
 fn sys_dup(_fd: usize, _arg2: usize, _arg3: usize) -> isize {

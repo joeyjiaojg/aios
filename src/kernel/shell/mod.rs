@@ -65,10 +65,7 @@ pub fn run_shell() {
                 }
                 Some(_) => {}
                 None => {
-                    // No byte ready — halt until the next interrupt wakes us.
-                    // # Safety
-                    // HLT with interrupts enabled is safe in the idle wait path.
-                    unsafe { core::arch::asm!("hlt") };
+                    // No byte ready - continue polling
                 }
             }
         }

@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y \
     mtools \
     ovmf \
     curl \
+    wget \
     git \
     && rm -rf /var/lib/apt/lists/*
 

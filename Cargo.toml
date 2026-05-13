@@ -19,6 +19,7 @@ spin = "0.9"
 pic8259 = "0.10"
 boot_info = { package = "aios_boot_info", path = "src/lib/boot_info" }
 linked_list_allocator = "0.10"
+heapless = "0.8"
 
 [[bin]]
 name = "aios_kernel"

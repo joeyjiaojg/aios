@@ -60,6 +60,7 @@ pub mod gdt;
 pub mod interrupts;
 pub mod keyboard;
 pub mod memory;
+pub mod multiboot2;
 pub mod network;
 pub mod pci;
 pub mod pic;
