@@ -42,8 +42,11 @@ pub fn init() {
     let mut gdt = GDT_TABLE.lock();
     let code_selector = gdt.append(Descriptor::kernel_code_segment());
     let data_selector = gdt.append(Descriptor::kernel_data_segment());
-    let user_code_selector = gdt.append(Descriptor::user_code_segment());
+    // user_data MUST come before user_code so that sysretq works:
+    // sysretq sets SS = STAR[63:48]+8 | 3, CS = STAR[63:48]+16 | 3
+    // With STAR[63:48]=0x10 (kernel_data): SS=0x18|3=user_data, CS=0x20|3=user_code
     let user_data_selector = gdt.append(Descriptor::user_data_segment());
+    let user_code_selector = gdt.append(Descriptor::user_code_segment());
     // # Safety
     // TSS is a static mut accessed only here during single-threaded init.
     // The Descriptor::tss_segment() call requires a reference to TSS, and
@@ -138,8 +141,9 @@ mod tests {
         let mut gdt = GlobalDescriptorTable::<8>::empty();
         gdt.append(Descriptor::kernel_code_segment());
         gdt.append(Descriptor::kernel_data_segment());
+        gdt.append(Descriptor::user_data_segment());
         let sel = gdt.append(Descriptor::user_code_segment());
-        assert_eq!(sel.index(), 3);
+        assert_eq!(sel.index(), 4);
     }
 
     #[test]
@@ -147,9 +151,8 @@ mod tests {
         let mut gdt = GlobalDescriptorTable::<8>::empty();
         gdt.append(Descriptor::kernel_code_segment());
         gdt.append(Descriptor::kernel_data_segment());
-        gdt.append(Descriptor::user_code_segment());
         let sel = gdt.append(Descriptor::user_data_segment());
-        assert_eq!(sel.index(), 4);
+        assert_eq!(sel.index(), 3);
     }
 
     #[test]
@@ -157,8 +160,8 @@ mod tests {
         let mut gdt = GlobalDescriptorTable::<8>::empty();
         gdt.append(Descriptor::kernel_code_segment());
         gdt.append(Descriptor::kernel_data_segment());
-        gdt.append(Descriptor::user_code_segment());
         gdt.append(Descriptor::user_data_segment());
+        gdt.append(Descriptor::user_code_segment());
         let sel = gdt.append(Descriptor::tss_segment(&TSS));
         assert_eq!(sel.index(), 5);
     }

@@ -25,6 +25,7 @@ pub extern "C" fn kernel_main(mbi_ptr: u64) -> ! {
     println!("[aios] Scheduler initialized");
 
     crate::syscalls::init();
+    crate::interrupts::init_syscall();
 
     // Parse multiboot2 modules and initialize ramdisk
     println!("[aios] Parsing multiboot2 modules...");

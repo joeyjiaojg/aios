@@ -63,6 +63,39 @@ core::arch::global_asm!(
     "iretq",
 );
 
+// Native syscall trampoline: handles the `syscall` instruction from ring 3.
+// On entry: rcx=user RIP (saved by CPU), r11=user RFLAGS (saved by CPU),
+//           rax=syscall number, rdi=arg1, rsi=arg2, rdx=arg3, r10=arg4.
+// We preserve rcx/r11 across the dispatch call since sysretq restores
+// RIP from rcx and RFLAGS from r11.
+core::arch::global_asm!(
+    ".global syscall_native_trampoline",
+    "syscall_native_trampoline:",
+    // rcx = user RIP (must survive until sysretq)
+    // r11 = user RFLAGS (must survive until sysretq)
+    // Save all registers that syscall_dispatch (extern "C") may clobber,
+    // except rax which carries the return value.
+    "push rcx", // user RIP — restored by sysretq
+    "push r11", // user RFLAGS — restored by sysretq
+    "push rbp",
+    "push rbx",
+    "push r12",
+    "push r13",
+    "push r14",
+    "push r15",
+    // rax=num, rdi=arg1, rsi=arg2, rdx=arg3 already match syscall_dispatch ABI
+    "call syscall_dispatch",
+    "pop r15",
+    "pop r14",
+    "pop r13",
+    "pop r12",
+    "pop rbx",
+    "pop rbp",
+    "pop r11", // restore user RFLAGS for sysretq
+    "pop rcx", // restore user RIP for sysretq
+    "sysretq",
+);
+
 /// Called from the int 0x80 trampoline with syscall registers already in place.
 /// Returns the syscall result in rax (via normal Rust return convention).
 #[no_mangle]
@@ -141,6 +174,42 @@ pub fn init() {
 
 // Kept for compatibility with kernel_entry call sequence; IDT is fully set up in init().
 pub fn init_idt() {}
+
+/// Configure SYSCALL/SYSRET MSRs so the `syscall` instruction from ring 3 dispatches here.
+///
+/// STAR layout:
+///   [63:48] = 0x10 (kernel_data) → sysretq loads SS=0x18|3 (user_data), CS=0x20|3 (user_code)
+///   [47:32] = 0x08 (kernel_code) → syscall loads CS=0x08, SS=0x10
+/// Requires GDT order: null, kernel_code(0x08), kernel_data(0x10), user_data(0x18), user_code(0x20)
+pub fn init_syscall() {
+    extern "C" {
+        fn syscall_native_trampoline();
+    }
+
+    // # Safety
+    // Writing standard x86_64 syscall MSRs during single-threaded boot init.
+    // All MSR addresses are documented in the Intel/AMD SDMs.
+    unsafe {
+        // Enable SCE bit in IA32_EFER (0xC000_0080)
+        let efer_lo: u32;
+        let efer_hi: u32;
+        core::arch::asm!("rdmsr", in("ecx") 0xC000_0080u32, out("eax") efer_lo, out("edx") efer_hi);
+        let efer: u64 = ((efer_hi as u64) << 32) | (efer_lo as u64) | 1; // set SCE
+        core::arch::asm!("wrmsr", in("ecx") 0xC000_0080u32, in("eax") efer as u32, in("edx") (efer >> 32) as u32);
+
+        // STAR: [63:48]=0x0010 (for sysretq), [47:32]=0x0008 (for syscall entry)
+        let star: u64 = (0x0010u64 << 48) | (0x0008u64 << 32);
+        core::arch::asm!("wrmsr", in("ecx") 0xC000_0081u32, in("eax") star as u32, in("edx") (star >> 32) as u32);
+
+        // LSTAR: 64-bit syscall handler address
+        let lstar = syscall_native_trampoline as usize as u64;
+        core::arch::asm!("wrmsr", in("ecx") 0xC000_0082u32, in("eax") lstar as u32, in("edx") (lstar >> 32) as u32);
+
+        // SFMASK: clear IF (bit 9) on syscall entry
+        let sfmask: u64 = 0x200;
+        core::arch::asm!("wrmsr", in("ecx") 0xC000_0084u32, in("eax") sfmask as u32, in("edx") (sfmask >> 32) as u32);
+    }
+}
 
 pub fn end_of_interrupt(irq: u8) {
     let mut pics_guard = PICS.lock();
