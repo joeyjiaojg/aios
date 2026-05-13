@@ -53,7 +53,12 @@ impl ModuleInfo {
     }
 }
 
-pub fn parse_modules(mbi_ptr: *const u8) {
+/// Parse multiboot2 info structure and extract module information.
+///
+/// # Safety
+/// `mbi_ptr` must point to a valid multiboot2 info structure placed by GRUB.
+/// The structure must be complete and readable. GRUB guarantees this at boot time.
+pub unsafe fn parse_modules(mbi_ptr: *const u8) {
     crate::serial::write_str("[multiboot2] parsing modules...\r\n");
 
     // # Safety

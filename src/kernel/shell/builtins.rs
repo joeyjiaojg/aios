@@ -144,7 +144,7 @@ pub fn mkdir(args: &[&str]) -> Result<(), &'static str> {
         return Err("mkdir: missing operand");
     }
 
-    let path = args[0];
+    let _path = args[0];
     // TODO: Implement mkdir with new ramdisk format
     crate::serial::write_str("mkdir: not yet implemented with new ramdisk format\r\n");
     Ok(())
@@ -155,7 +155,7 @@ pub fn rm(args: &[&str]) -> Result<(), &'static str> {
         return Err("rm: missing operand");
     }
 
-    let path = args[0];
+    let _path = args[0];
     // TODO: Implement rm with new ramdisk format
     crate::serial::write_str("rm: not yet implemented with new ramdisk format\r\n");
     Ok(())
@@ -166,7 +166,7 @@ pub fn cat(args: &[&str]) -> Result<(), &'static str> {
         return Err("cat: missing operand");
     }
 
-    let path = args[0];
+    let _path = args[0];
     // TODO: Implement cat with new ramdisk format
     crate::serial::write_str("cat: not yet implemented with new ramdisk format\r\n");
     Ok(())
@@ -401,6 +401,7 @@ pub fn execute_builtin(cmd: &str, args: &[&str]) -> bool {
     }
 }
 
+#[allow(dead_code)]
 fn simple_hash_str(s: &str) -> usize {
     let mut hash: usize = 0;
     let bytes = s.as_bytes();

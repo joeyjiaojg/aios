@@ -573,7 +573,7 @@ pub fn start_user_program(
     let argc = unsafe { *argc_ptr };
 
     // argv starts right after argc
-    let argv_ptr = (context.stack_ptr + 8) as u64;
+    let argv_ptr = context.stack_ptr + 8;
 
     crate::serial::write_str("[elf] argc=");
     print_hex_u64(argc);

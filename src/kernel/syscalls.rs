@@ -239,7 +239,7 @@ fn sys_execve(path_ptr: usize, _argv: usize, _envp: usize) -> isize {
 
     // Try to read ELF from ramdisk (using path as block number for simple demo)
     // In a real FS, we'd parse the path and look up the inode
-    let block_num = if path.len() == 1 && path[0] == b'/' {
+    let _block_num = if path.len() == 1 && path[0] == b'/' {
         1
     } else if path.starts_with(b"/bin/") || path.starts_with(b"/sbin/") {
         let name = &path[5..];
@@ -248,7 +248,7 @@ fn sys_execve(path_ptr: usize, _argv: usize, _envp: usize) -> isize {
         simple_hash(path) as u32
     };
 
-    let mut elf_data = [0u8; 8192];
+    let elf_data = [0u8; 8192];
 
     // Read ELF from ramdisk into buffer
     // # Safety
@@ -377,7 +377,7 @@ fn sys_mkdir(path_ptr: usize, _mode: usize, _arg3: usize) -> isize {
     let path_bytes = unsafe { core::slice::from_raw_parts(path_ptr as *const u8, 256) };
     let path_len = path_bytes.iter().position(|&b| b == 0).unwrap_or(256);
 
-    let ino = simple_hash(&path_bytes[..path_len]) as u32;
+    let _ino = simple_hash(&path_bytes[..path_len]) as u32;
     // TODO: Implement mkdir in new ramdisk format
     // let mut ramdisk = crate::ramdisk::RAMDISK.lock();
     // if ramdisk.write(ino, 0, b"[DIR]").is_some() {
@@ -400,7 +400,7 @@ fn sys_rmdir(path_ptr: usize, _arg2: usize, _arg3: usize) -> isize {
     // Callers (via the syscall interface) are responsible for valid pointers.
     let path_bytes = unsafe { core::slice::from_raw_parts(path_ptr as *const u8, 256) };
     let path_len = path_bytes.iter().position(|&b| b == 0).unwrap_or(256);
-    let ino = simple_hash(&path_bytes[..path_len]) as u32;
+    let _ino = simple_hash(&path_bytes[..path_len]) as u32;
 
     // TODO: Implement in new ramdisk format
     -1 // Not implemented
@@ -418,7 +418,7 @@ fn sys_unlink(path_ptr: usize, _arg2: usize, _arg3: usize) -> isize {
     // Callers (via the syscall interface) are responsible for valid pointers.
     let path_bytes = unsafe { core::slice::from_raw_parts(path_ptr as *const u8, 256) };
     let path_len = path_bytes.iter().position(|&b| b == 0).unwrap_or(256);
-    let ino = simple_hash(&path_bytes[..path_len]) as u32;
+    let _ino = simple_hash(&path_bytes[..path_len]) as u32;
 
     // TODO: Implement in new ramdisk format
     -1 // Not implemented
