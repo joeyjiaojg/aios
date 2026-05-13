@@ -50,20 +50,54 @@ jobs:
       - name: AI Code Review
         id: review
         run: |
-          echo "=== Code Quality Checks ==="
+          echo "=== AI Code Review Started ==="
+          echo "PR: ${{ github.event.pull_request.number }}"
 
-          # If we got here, fmt and clippy already passed
-          # Check commit messages for Model/Tool fields
-          COMMITS=$(git log origin/${{ github.base_ref }}...HEAD --format="%B" | grep -c "Model:")
+          git diff origin/${{ github.base_ref }}...HEAD > /tmp/pr_diff.txt
+          DIFF_SIZE=$(wc -c < /tmp/pr_diff.txt)
+          echo "Diff size: $DIFF_SIZE bytes"
 
-          if [ "$COMMITS" -gt 0 ]; then
-            echo "✅ Commit messages have Model/Tool fields"
-            echo "review_output=Code passes all checks: fmt, clippy, commit format" >> $GITHUB_OUTPUT
+          # Create review prompt
+          REVIEW_PROMPT="Analyze this Rust kernel code diff. Check for:
+          - Memory safety issues
+          - Unsafe blocks without justification
+          - No_std violations (Vec, String, heap)
+          - Architecture correctness
+          - Commit message format
+
+          Output ONLY the word APPROVED or REJECTED on first line, then brief reason.
+
+          Diff:"
+
+          # Run opencode with review prompt + diff
+          REVIEW_RESULT=$(timeout 120 opencode run -m opencode/minimax-m2.5-free "$REVIEW_PROMPT $(cat /tmp/pr_diff.txt)" 2>&1 | head -20)
+
+          echo "=== Review Result ==="
+          echo "$REVIEW_RESULT"
+          echo "=== End Review ==="
+
+          # Extract first line to check for APPROVED/REJECTED
+          FIRST_LINE=$(echo "$REVIEW_RESULT" | head -1)
+
+          if echo "$FIRST_LINE" | grep -qi "APPROVED"; then
+            echo "$REVIEW_RESULT" > /tmp/review_output.txt
+            echo "review_output_file=/tmp/review_output.txt" >> $GITHUB_OUTPUT
             echo "approved=true" >> $GITHUB_OUTPUT
-          else
-            echo "❌ Some commits missing Model/Tool fields"
-            echo "review_output=Commits must include Model/Tool fields" >> $GITHUB_OUTPUT
+          elif echo "$FIRST_LINE" | grep -qi "REJECTED"; then
+            echo "$REVIEW_RESULT" > /tmp/review_output.txt
+            echo "review_output_file=/tmp/review_output.txt" >> $GITHUB_OUTPUT
             echo "approved=false" >> $GITHUB_OUTPUT
+          else
+            # If no clear APPROVED/REJECTED, check if code passed basic checks
+            if [ "$DIFF_SIZE" -lt 50000 ] && git log origin/${{ github.base_ref }}...HEAD --format="%B" | grep -q "Model:"; then
+              echo "Code passes basic checks (fmt, clippy, commit format)" > /tmp/review_output.txt
+              echo "review_output_file=/tmp/review_output.txt" >> $GITHUB_OUTPUT
+              echo "approved=true" >> $GITHUB_OUTPUT
+            else
+              echo "Review inconclusive: $REVIEW_RESULT" > /tmp/review_output.txt
+              echo "review_output_file=/tmp/review_output.txt" >> $GITHUB_OUTPUT
+              echo "approved=false" >> $GITHUB_OUTPUT
+            fi
           fi
 
       - name: Post Review Comment
