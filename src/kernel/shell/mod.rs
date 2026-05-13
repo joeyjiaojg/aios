@@ -91,9 +91,34 @@ pub fn run_shell() {
         let cmd = args[0];
         let result = builtins::execute_builtin(cmd, &args[..arg_count]);
         if !result {
-            crate::serial::write_str("Command not found: ");
-            crate::serial::write_str(cmd);
-            crate::serial::write_str("\r\n");
+            // Resolve to absolute path: "/bin/cmd" for bare names
+            let mut path_buf = [0u8; 256];
+            let resolved: &str = if cmd.starts_with('/') {
+                cmd
+            } else {
+                let prefix = b"/bin/";
+                let cb = cmd.as_bytes();
+                let total = prefix.len() + cb.len();
+                if total < 256 {
+                    path_buf[..prefix.len()].copy_from_slice(prefix);
+                    path_buf[prefix.len()..total].copy_from_slice(cb);
+                    core::str::from_utf8(&path_buf[..total]).unwrap_or(cmd)
+                } else {
+                    cmd
+                }
+            };
+
+            if crate::ramdisk::lookup_file(resolved).is_some() {
+                // exec_cmd uses exec_args[0] as the program path
+                let mut exec_args: [&str; MAX_ARGS] = [""; MAX_ARGS];
+                exec_args[0] = resolved;
+                exec_args[1..arg_count].copy_from_slice(&args[1..arg_count]);
+                let _ = builtins::exec_cmd(resolved, &exec_args[..arg_count]);
+            } else {
+                crate::serial::write_str("Command not found: ");
+                crate::serial::write_str(cmd);
+                crate::serial::write_str("\r\n");
+            }
         }
     }
 }

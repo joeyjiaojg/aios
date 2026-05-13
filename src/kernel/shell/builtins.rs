@@ -125,17 +125,40 @@ pub fn echo(args: &[&str]) -> Result<(), &'static str> {
 }
 
 pub fn ls(args: &[&str]) -> Result<(), &'static str> {
-    let _show_hidden = args.contains(&"-a");
-    let _long_format = args.contains(&"-l");
-
     let current = get_current_dir_str();
-    let _path: &str = if args.is_empty() || args[0].starts_with('-') {
+    let path: &str = if args.is_empty() || args[0].starts_with('-') {
         current
     } else {
         args[0]
     };
 
-    crate::ramdisk::list_files();
+    // Resolve relative paths
+    let mut abs_buf = [0u8; 256];
+    let abs_path: &str = if path.starts_with('/') {
+        path
+    } else {
+        let cur = get_current_dir_str().as_bytes();
+        let mut pos = 0;
+        for &b in cur {
+            if pos < 255 {
+                abs_buf[pos] = b;
+                pos += 1;
+            }
+        }
+        if pos > 0 && abs_buf[pos - 1] != b'/' {
+            abs_buf[pos] = b'/';
+            pos += 1;
+        }
+        for &b in path.as_bytes() {
+            if pos < 255 {
+                abs_buf[pos] = b;
+                pos += 1;
+            }
+        }
+        core::str::from_utf8(&abs_buf[..pos]).unwrap_or("/")
+    };
+
+    crate::ramdisk::list_dir(abs_path);
     Ok(())
 }
 

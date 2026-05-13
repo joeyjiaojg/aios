@@ -133,6 +133,68 @@ pub fn lookup_file(path: &str) -> Option<&'static [u8]> {
     None
 }
 
+/// List directory contents (for `ls` command)
+pub fn list_dir(dir_path: &str) {
+    // Normalize: root stays "/", others get trailing "/"
+    let mut norm_buf = [0u8; 256];
+    let dir_prefix: &str = if dir_path == "/" {
+        "/"
+    } else {
+        let bytes = dir_path.as_bytes();
+        let trimmed = bytes
+            .iter()
+            .rposition(|&b| b != b'/')
+            .map(|i| &bytes[..=i])
+            .unwrap_or(bytes);
+        let len = trimmed.len().min(254);
+        norm_buf[..len].copy_from_slice(&trimmed[..len]);
+        norm_buf[len] = b'/';
+        core::str::from_utf8(&norm_buf[..=len]).unwrap_or("/")
+    };
+
+    // Collect names to print (static strs — slices of 'static paths)
+    let mut names: heapless::Vec<&'static str, 32> = heapless::Vec::new();
+    let mut seen_dirs: heapless::Vec<&'static str, 16> = heapless::Vec::new();
+    {
+        let index = FILE_INDEX.lock();
+        for entry in index.iter() {
+            let path: &'static str = entry.path;
+            let suffix: &'static str = if dir_prefix == "/" {
+                if path.len() > 1 {
+                    &path[1..]
+                } else {
+                    continue;
+                }
+            } else if let Some(s) = path.strip_prefix(dir_prefix) {
+                s
+            } else {
+                continue;
+            };
+            if suffix.is_empty() {
+                continue;
+            }
+            if let Some(slash) = suffix.find('/') {
+                // Entry is inside a subdirectory — show the subdir name once
+                let subdir: &'static str = &suffix[..=slash];
+                if !seen_dirs.contains(&subdir) {
+                    let _ = seen_dirs.push(subdir);
+                    let _ = names.push(subdir);
+                }
+            } else {
+                let _ = names.push(suffix);
+            }
+        }
+    }
+
+    for (i, name) in names.iter().enumerate() {
+        if i > 0 {
+            crate::serial::write_str("  ");
+        }
+        crate::serial::write_str(name);
+    }
+    crate::serial::write_str("\r\n");
+}
+
 /// List all files in ramdisk (for debugging)
 pub fn list_files() {
     crate::serial::write_str("[ramdisk] file index:\r\n");
