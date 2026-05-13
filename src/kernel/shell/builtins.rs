@@ -7,7 +7,6 @@
 #![allow(clippy::manual_inspect)]
 
 use crate::process;
-use crate::ramdisk::RAMDISK;
 use crate::shell::{get_current_dir_str, set_current_dir};
 
 pub fn cd(args: &[&str]) -> Result<(), &'static str> {
@@ -126,50 +125,17 @@ pub fn echo(args: &[&str]) -> Result<(), &'static str> {
 }
 
 pub fn ls(args: &[&str]) -> Result<(), &'static str> {
-    let show_hidden = args.contains(&"-a");
-    let long_format = args.contains(&"-l");
+    let _show_hidden = args.contains(&"-a");
+    let _long_format = args.contains(&"-l");
 
     let current = get_current_dir_str();
-    let path: &str = if args.is_empty() || args[0].starts_with('-') {
+    let _path: &str = if args.is_empty() || args[0].starts_with('-') {
         current
     } else {
         args[0]
     };
 
-    let path_hash = simple_hash_str(path);
-    let ramdisk = RAMDISK.lock();
-
-    let mut found = false;
-
-    for i in 0..16 {
-        let ino = ((path_hash + i) % 127) as u32;
-        let mut entry_buf = [0u8; 32];
-        let bytes_read = ramdisk.read(ino, 0, &mut entry_buf).unwrap_or(0);
-
-        if bytes_read > 0 && entry_buf[0] != 0 && (show_hidden || entry_buf[0] != b'.') {
-            if !found && long_format {
-                crate::serial::write_str("total 1\r\n");
-            }
-            found = true;
-            let name_len = bytes_read.min(14);
-            for &byte in entry_buf.iter().take(name_len) {
-                if byte != 0 {
-                    crate::serial::write_byte(byte);
-                }
-            }
-            if long_format {
-                crate::serial::write_str("\r\n");
-            } else {
-                crate::serial::write_str("  ");
-            }
-        }
-    }
-
-    if !found {
-        crate::serial::write_str("(empty)\r\n");
-    } else if !long_format {
-        crate::serial::write_str("\r\n");
-    }
+    crate::ramdisk::list_files();
     Ok(())
 }
 
@@ -178,17 +144,9 @@ pub fn mkdir(args: &[&str]) -> Result<(), &'static str> {
         return Err("mkdir: missing operand");
     }
 
-    let path = args[0];
-    let path_hash = simple_hash_str(path);
-    let mut ramdisk = RAMDISK.lock();
-
-    let marker = b"[DIR]";
-    let _ = ramdisk.write(path_hash as u32, 0, marker);
-
-    crate::serial::write_str("Directory created: ");
-    crate::serial::write_str(path);
-    crate::serial::write_str("\r\n");
-
+    let _path = args[0];
+    // TODO: Implement mkdir with new ramdisk format
+    crate::serial::write_str("mkdir: not yet implemented with new ramdisk format\r\n");
     Ok(())
 }
 
@@ -197,17 +155,9 @@ pub fn rm(args: &[&str]) -> Result<(), &'static str> {
         return Err("rm: missing operand");
     }
 
-    let path = args[0];
-    let path_hash = simple_hash_str(path);
-    let mut ramdisk = RAMDISK.lock();
-
-    let zero_buf = [0u8; 16];
-    let _ = ramdisk.write(path_hash as u32, 0, &zero_buf);
-
-    crate::serial::write_str("Removed: ");
-    crate::serial::write_str(path);
-    crate::serial::write_str("\r\n");
-
+    let _path = args[0];
+    // TODO: Implement rm with new ramdisk format
+    crate::serial::write_str("rm: not yet implemented with new ramdisk format\r\n");
     Ok(())
 }
 
@@ -216,30 +166,9 @@ pub fn cat(args: &[&str]) -> Result<(), &'static str> {
         return Err("cat: missing operand");
     }
 
-    let path = args[0];
-    let path_hash = simple_hash_str(path);
-    let ramdisk = RAMDISK.lock();
-
-    let mut read_buf = [0u8; 256];
-    let bytes_read = ramdisk
-        .read(path_hash as u32, 0, &mut read_buf)
-        .unwrap_or(0);
-
-    if bytes_read == 0 {
-        crate::serial::write_str("cat: ");
-        crate::serial::write_str(path);
-        crate::serial::write_str(": No such file or directory\r\n");
-        return Err("File not found");
-    }
-
-    for &byte in read_buf.iter().take(bytes_read) {
-        if byte == 0 {
-            break;
-        }
-        crate::serial::write_byte(byte);
-    }
-    crate::serial::write_str("\r\n");
-
+    let _path = args[0];
+    // TODO: Implement cat with new ramdisk format
+    crate::serial::write_str("cat: not yet implemented with new ramdisk format\r\n");
     Ok(())
 }
 
@@ -305,13 +234,20 @@ pub fn exec_cmd(_cmd: &str, args: &[&str]) -> Result<(), &'static str> {
     crate::serial::write_str("\r\n");
 
     crate::serial::write_str("exec: getting ELF data...\r\n");
-    // For "/init", use the embedded USER_INIT_ELF; for other paths, try ramdisk.
-    let elf_data = if path == "/init" {
-        crate::serial::write_str("exec: using embedded USER_INIT_ELF\r\n");
-        crate::user_init::USER_INIT_ELF
-    } else {
-        crate::serial::write_str("exec: only /init is supported in this POC\r\n");
-        return Err("Only /init is supported");
+    // Lookup file from ramdisk (supports /init, /bin/busybox, etc.)
+    let elf_data = match crate::ramdisk::lookup_file(path) {
+        Some(data) => {
+            crate::serial::write_str("exec: found file in ramdisk (");
+            print_decimal(data.len());
+            crate::serial::write_str(" bytes)\r\n");
+            data
+        }
+        None => {
+            crate::serial::write_str("exec: file not found: ");
+            crate::serial::write_str(path);
+            crate::serial::write_str("\r\n");
+            return Err("File not found");
+        }
     };
 
     crate::serial::write_str("exec: getting GDT selectors...\r\n");
@@ -410,6 +346,28 @@ pub fn exec_cmd(_cmd: &str, args: &[&str]) -> Result<(), &'static str> {
     );
 }
 
+fn print_decimal(val: usize) {
+    if val == 0 {
+        crate::serial::write_byte(b'0');
+        return;
+    }
+
+    let mut buf = [0u8; 20];
+    let mut n = val;
+    let mut i = 0;
+
+    while n > 0 {
+        buf[i] = b'0' + (n % 10) as u8;
+        n /= 10;
+        i += 1;
+    }
+
+    while i > 0 {
+        i -= 1;
+        crate::serial::write_byte(buf[i]);
+    }
+}
+
 pub fn execute_builtin(cmd: &str, args: &[&str]) -> bool {
     let args_slice = &args[1..];
     match cmd {
@@ -443,6 +401,7 @@ pub fn execute_builtin(cmd: &str, args: &[&str]) -> bool {
     }
 }
 
+#[allow(dead_code)]
 fn simple_hash_str(s: &str) -> usize {
     let mut hash: usize = 0;
     let bytes = s.as_bytes();

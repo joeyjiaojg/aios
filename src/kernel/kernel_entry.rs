@@ -26,15 +26,14 @@ pub extern "C" fn kernel_main(mbi_ptr: u64) -> ! {
 
     crate::syscalls::init();
 
+    // Parse multiboot2 modules and initialize ramdisk
+    println!("[aios] Parsing multiboot2 modules...");
+    unsafe { crate::multiboot2::parse_modules(mbi_ptr as *const u8) };
+    crate::ramdisk::init_from_modules();
+    crate::ramdisk::list_files();
+
     crate::interrupts::enable_interrupts();
     println!("[aios] Starting shell");
-
-    // Auto-exec /init for testing
-    println!("[aios] Auto-executing /init for testing...");
-    let result = crate::shell::builtins::exec_cmd("exec", &["/init"]);
-    if result.is_err() {
-        println!("[aios] exec /init failed: {:?}", result);
-    }
 
     crate::shell::run_shell();
 
