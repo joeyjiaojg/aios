@@ -299,7 +299,10 @@ impl ElfLoader {
                 crate::serial::write_str("[elf] load_segments: segment loaded\r\n");
             }
             // Debug: dump first few bytes at entry point
-            if crate::debug::is_debug_enabled() && ehdr.e_entry >= phdr.p_vaddr && ehdr.e_entry < phdr.p_vaddr + phdr.p_memsz {
+            if crate::debug::is_debug_enabled()
+                && ehdr.e_entry >= phdr.p_vaddr
+                && ehdr.e_entry < phdr.p_vaddr + phdr.p_memsz
+            {
                 crate::serial::write_str("[elf] load_segments: entry point bytes: ");
                 let entry_ptr = ehdr.e_entry as *const u8;
                 for i in 0..8 {
