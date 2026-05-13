@@ -229,17 +229,21 @@ pub fn exec_cmd(_cmd: &str, args: &[&str]) -> Result<(), &'static str> {
     }
 
     let path = args[0];
-    crate::serial::write_str("exec: loading ");
-    crate::serial::write_str(path);
-    crate::serial::write_str("\r\n");
+    if crate::debug::is_debug_enabled() {
+        crate::serial::write_str("exec: loading ");
+        crate::serial::write_str(path);
+        crate::serial::write_str("\r\n");
 
-    crate::serial::write_str("exec: getting ELF data...\r\n");
+        crate::serial::write_str("exec: getting ELF data...\r\n");
+    }
     // Lookup file from ramdisk (supports /init, /bin/busybox, etc.)
     let elf_data = match crate::ramdisk::lookup_file(path) {
         Some(data) => {
-            crate::serial::write_str("exec: found file in ramdisk (");
-            print_decimal(data.len());
-            crate::serial::write_str(" bytes)\r\n");
+            if crate::debug::is_debug_enabled() {
+                crate::serial::write_str("exec: found file in ramdisk (");
+                print_decimal(data.len());
+                crate::serial::write_str(" bytes)\r\n");
+            }
             data
         }
         None => {
@@ -250,11 +254,15 @@ pub fn exec_cmd(_cmd: &str, args: &[&str]) -> Result<(), &'static str> {
         }
     };
 
-    crate::serial::write_str("exec: getting GDT selectors...\r\n");
+    if crate::debug::is_debug_enabled() {
+        crate::serial::write_str("exec: getting GDT selectors...\r\n");
+    }
     // Get the GDT selectors for user-mode segments
     let selectors = match crate::gdt::get_selectors() {
         Some(s) => {
-            crate::serial::write_str("exec: GDT selectors OK\r\n");
+            if crate::debug::is_debug_enabled() {
+                crate::serial::write_str("exec: GDT selectors OK\r\n");
+            }
             s
         }
         None => {
@@ -263,7 +271,9 @@ pub fn exec_cmd(_cmd: &str, args: &[&str]) -> Result<(), &'static str> {
         }
     };
 
-    crate::serial::write_str("exec: setting up frame allocator...\r\n");
+    if crate::debug::is_debug_enabled() {
+        crate::serial::write_str("exec: setting up frame allocator...\r\n");
+    }
     // Set up a minimal frame allocator for ELF loading
     // We use a static memory region at 0x500000 (5 MiB) for user program pages.
     const USER_MEM_BASE: usize = 0x500000;
@@ -272,7 +282,9 @@ pub fn exec_cmd(_cmd: &str, args: &[&str]) -> Result<(), &'static str> {
     let mut allocator = crate::memory::FrameAllocator::new();
     allocator.init(USER_MEM_BASE as *mut u8, USER_MEM_SIZE, MAX_FRAMES);
 
-    crate::serial::write_str("exec: calling setup_user_context...\r\n");
+    if crate::debug::is_debug_enabled() {
+        crate::serial::write_str("exec: calling setup_user_context...\r\n");
+    }
     // Set up user context (loads ELF, prepares stack, argc/argv).
     // We pass "/init" as argv[0].
     let args_bytes: &[&[u8]] = &[path.as_bytes()];
@@ -289,54 +301,56 @@ pub fn exec_cmd(_cmd: &str, args: &[&str]) -> Result<(), &'static str> {
         e
     })?;
 
-    crate::serial::write_str("exec: ELF setup successful!\r\n");
+    if crate::debug::is_debug_enabled() {
+        crate::serial::write_str("exec: ELF setup successful!\r\n");
 
-    crate::serial::write_str("exec: entry=0x");
-    // Print entry point in hex (simplified)
-    for i in (0..16).rev() {
-        let nibble = ((context.entry >> (i * 4)) & 0xF) as u8;
-        let ch = if nibble < 10 {
-            b'0' + nibble
-        } else {
-            b'a' + (nibble - 10)
-        };
-        crate::serial::write_byte(ch);
+        crate::serial::write_str("exec: entry=0x");
+        // Print entry point in hex (simplified)
+        for i in (0..16).rev() {
+            let nibble = ((context.entry >> (i * 4)) & 0xF) as u8;
+            let ch = if nibble < 10 {
+                b'0' + nibble
+            } else {
+                b'a' + (nibble - 10)
+            };
+            crate::serial::write_byte(ch);
+        }
+        crate::serial::write_str(" stack=0x");
+        for i in (0..16).rev() {
+            let nibble = ((context.stack_ptr >> (i * 4)) & 0xF) as u8;
+            let ch = if nibble < 10 {
+                b'0' + nibble
+            } else {
+                b'a' + (nibble - 10)
+            };
+            crate::serial::write_byte(ch);
+        }
+        crate::serial::write_str("\r\n");
+        crate::serial::write_str("exec: user_cs=");
+        let cs_val = selectors.user_code_selector.0;
+        for i in (0..4).rev() {
+            let nibble = ((cs_val >> (i * 4)) & 0xF) as u8;
+            let ch = if nibble < 10 {
+                b'0' + nibble
+            } else {
+                b'a' + (nibble - 10)
+            };
+            crate::serial::write_byte(ch);
+        }
+        crate::serial::write_str(" user_ss=");
+        let ss_val = selectors.user_data_selector.0;
+        for i in (0..4).rev() {
+            let nibble = ((ss_val >> (i * 4)) & 0xF) as u8;
+            let ch = if nibble < 10 {
+                b'0' + nibble
+            } else {
+                b'a' + (nibble - 10)
+            };
+            crate::serial::write_byte(ch);
+        }
+        crate::serial::write_str("\r\n");
+        crate::serial::write_str("exec: calling start_user_program...\r\n");
     }
-    crate::serial::write_str(" stack=0x");
-    for i in (0..16).rev() {
-        let nibble = ((context.stack_ptr >> (i * 4)) & 0xF) as u8;
-        let ch = if nibble < 10 {
-            b'0' + nibble
-        } else {
-            b'a' + (nibble - 10)
-        };
-        crate::serial::write_byte(ch);
-    }
-    crate::serial::write_str("\r\n");
-    crate::serial::write_str("exec: user_cs=");
-    let cs_val = selectors.user_code_selector.0;
-    for i in (0..4).rev() {
-        let nibble = ((cs_val >> (i * 4)) & 0xF) as u8;
-        let ch = if nibble < 10 {
-            b'0' + nibble
-        } else {
-            b'a' + (nibble - 10)
-        };
-        crate::serial::write_byte(ch);
-    }
-    crate::serial::write_str(" user_ss=");
-    let ss_val = selectors.user_data_selector.0;
-    for i in (0..4).rev() {
-        let nibble = ((ss_val >> (i * 4)) & 0xF) as u8;
-        let ch = if nibble < 10 {
-            b'0' + nibble
-        } else {
-            b'a' + (nibble - 10)
-        };
-        crate::serial::write_byte(ch);
-    }
-    crate::serial::write_str("\r\n");
-    crate::serial::write_str("exec: calling start_user_program...\r\n");
 
     // Transition to ring 3 — does not return.
     crate::elf::start_user_program(
