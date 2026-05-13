@@ -11,6 +11,8 @@ DOCKER_IMAGE := aios-builder
 RUSTUP := ${HOME}/.cargo/bin/rustup
 CARGO := ${HOME}/.cargo/bin/cargo
 DOCKER := /usr/bin/docker
+# Seconds before QEMU is killed; 0 = no timeout (interactive use)
+QEMU_TIMEOUT ?= 0
 
 .PHONY: all build clean test test-qemu test-unit test-integration fmt check clippy \
         iso run run-debug run-uefi docker-build docker-iso
@@ -54,41 +56,23 @@ run: docker-iso
 	$(DOCKER) run --rm -it \
 		-v $(PROJECT_ROOT)/$(BUILD):/aios/$(BUILD):ro \
 		$(DOCKER_IMAGE) \
-		qemu-system-x86_64 \
-			-serial stdio \
-			-display none \
-			-cdrom /aios/$(BUILD)/aios.iso \
-			-boot d \
-			-no-reboot \
-			-m 256M
+		sh -c 'CMD="qemu-system-x86_64 -serial stdio -display none -cdrom /aios/$(BUILD)/aios.iso -boot d -no-reboot -m 256M"; \
+		       if [ "$(QEMU_TIMEOUT)" -gt 0 ] 2>/dev/null; then exec timeout $(QEMU_TIMEOUT) $$CMD; else exec $$CMD; fi'
 
 # Debug run: int/cpu_reset events logged to build/qemu.log
 run-debug: docker-iso
 	$(DOCKER) run --rm -it \
 		-v $(PROJECT_ROOT)/$(BUILD):/aios/$(BUILD) \
 		$(DOCKER_IMAGE) \
-		qemu-system-x86_64 \
-			-serial stdio \
-			-display none \
-			-cdrom /aios/$(BUILD)/aios.iso \
-			-boot d \
-			-no-reboot \
-			-m 256M \
-			-d int,cpu_reset \
-			-D /aios/$(BUILD)/qemu.log
+		sh -c 'CMD="qemu-system-x86_64 -serial stdio -display none -cdrom /aios/$(BUILD)/aios.iso -boot d -no-reboot -m 256M -d int,cpu_reset -D /aios/$(BUILD)/qemu.log"; \
+		       if [ "$(QEMU_TIMEOUT)" -gt 0 ] 2>/dev/null; then exec timeout $(QEMU_TIMEOUT) $$CMD; else exec $$CMD; fi'
 
 run-uefi: docker-iso
 	$(DOCKER) run --rm -it \
 		-v $(PROJECT_ROOT)/$(BUILD):/aios/$(BUILD):ro \
 		$(DOCKER_IMAGE) \
-		qemu-system-x86_64 \
-			-serial stdio \
-			-display none \
-			-drive if=pflash,format=raw,file=/usr/share/ovmf/OVMF.fd \
-			-cdrom /aios/$(BUILD)/aios.iso \
-			-boot d \
-			-no-reboot \
-			-m 256M
+		sh -c 'CMD="qemu-system-x86_64 -serial stdio -display none -drive if=pflash,format=raw,file=/usr/share/ovmf/OVMF.fd -cdrom /aios/$(BUILD)/aios.iso -boot d -no-reboot -m 256M"; \
+		       if [ "$(QEMU_TIMEOUT)" -gt 0 ] 2>/dev/null; then exec timeout $(QEMU_TIMEOUT) $$CMD; else exec $$CMD; fi'
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
 test-unit:
