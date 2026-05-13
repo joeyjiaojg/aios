@@ -25,6 +25,8 @@ pub struct Process {
     pub exit_code: i32,
     pub cwd: [u8; CWD_SIZE],
     pub cwd_len: usize,
+    pub brk_end: usize,
+    pub mmap_next: usize,
 }
 
 impl Process {
@@ -36,6 +38,8 @@ impl Process {
             exit_code: 0,
             cwd: [0u8; CWD_SIZE],
             cwd_len: 0,
+            brk_end: 0x800000,
+            mmap_next: 0x1000_0000,
         }
     }
 
