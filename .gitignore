@@ -25,6 +25,7 @@ Thumbs.db
 
 # AIOS build output
 /build/
+/build_new/
 /out/
 
 # Coverage
