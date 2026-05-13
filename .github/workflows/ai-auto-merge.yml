@@ -54,12 +54,23 @@ jobs:
           echo "PR: ${{ github.event.pull_request.number }}"
           echo "Base: ${{ github.base_ref }}"
           echo "Head: ${{ github.event.pull_request.head.ref }}"
-          
+
           git diff origin/${{ github.base_ref }}...HEAD > /tmp/pr_diff.txt
           echo "Diff size: $(wc -c < /tmp/pr_diff.txt) bytes"
 
           REVIEW_RESULT=$(timeout 240 opencode run -m opencode/minimax-m2.5-free \
-            "You are a code reviewer for AIOS, an AI-generated x86_64 OS written in Rust.\n\nReview the following PR diff:\n- Memory safety (unsafe blocks need justification)\n- x86_64 architecture correctness\n- Consistency with Rust no_std patterns\n- No hardcoded secrets\n- Proper error handling\n- Test coverage\n- Commit message follows AIOS convention (Model/Tool fields)\n\nDiff:\n$(cat /tmp/pr_diff.txt)\n\nOutput exactly 'APPROVED' or 'REJECTED' with brief reasoning.") 2>&1 || echo "TIMEOUT_OR_ERROR"
+            "Review this AIOS Rust kernel code for:
+- Memory safety (all unsafe blocks justified)
+- x86_64 architecture correctness
+- no_std compatibility (no Vec/String)
+- No hardcoded secrets
+- Proper error handling
+- Commit messages with Model/Tool fields
+
+Code diff:
+$(cat /tmp/pr_diff.txt)
+
+Reply with only: APPROVED or REJECTED (with one sentence reason)") 2>&1 || echo "TIMEOUT_OR_ERROR"
 
           echo "=== Review Result ==="
           echo "$REVIEW_RESULT"
