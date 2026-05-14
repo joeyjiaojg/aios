@@ -904,14 +904,16 @@ fn sys_sigaltstack(_ss: usize, _oss: usize, _arg3: usize) -> isize {
     0
 }
 
+static mut CURRENT_FS_BASE: u64 = 0;
+
+pub fn get_current_fs_base() -> u64 {
+    unsafe { CURRENT_FS_BASE }
+}
+
 fn sys_arch_prctl(code: usize, addr: usize, _arg3: usize) -> isize {
     match code {
         0x1002 => {
             // ARCH_SET_FS: write FS_BASE MSR so musl TLS works
-            // # Safety
-            // Writes MSR_FS_BASE (0xC000_0100) with wrmsr. Called from the
-            // syscall handler before sysretq so the FS base persists to ring 3.
-            // ecx=MSR number, eax=low 32 bits, edx=high 32 bits of the address.
             unsafe {
                 core::arch::asm!(
                     "wrmsr",
@@ -919,6 +921,7 @@ fn sys_arch_prctl(code: usize, addr: usize, _arg3: usize) -> isize {
                     in("eax") addr as u32,
                     in("edx") (addr >> 32) as u32,
                 );
+                CURRENT_FS_BASE = addr as u64;
             }
             0
         }

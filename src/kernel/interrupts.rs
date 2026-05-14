@@ -90,6 +90,8 @@ core::arch::global_asm!(
     "push r15",
     // rax=num, rdi=arg1, rsi=arg2, rdx=arg3 already match syscall_dispatch ABI
     "call syscall_dispatch",
+    // Restore FS_BASE before returning to user mode
+    "call restore_fs_base",
     "pop r15",
     "pop r14",
     "pop r13",
@@ -157,6 +159,37 @@ pub extern "C" fn syscall_dispatch(
     }
 
     result as i64
+}
+
+#[no_mangle]
+pub extern "C" fn restore_fs_base() {
+    // Restore FS_BASE from the saved value before returning to user mode
+    // # Safety
+    // This is called from the syscall trampoline before sysretq, so we're still
+    // in kernel mode. We read the saved FS_BASE value and write it back to the MSR.
+    crate::serial::write_str("[restore_fs_base] called\r\n");
+    unsafe {
+        let fs_base = crate::syscalls::get_current_fs_base();
+        crate::serial::write_str("[restore_fs_base] fs_base=0x");
+        for i in (0..16).rev() {
+            let nibble = ((fs_base >> (i * 4)) & 0xF) as u8;
+            crate::serial::write_byte(if nibble < 10 {
+                b'0' + nibble
+            } else {
+                b'a' + (nibble - 10)
+            });
+        }
+        crate::serial::write_str("\r\n");
+        if fs_base != 0 {
+            core::arch::asm!(
+                "wrmsr",
+                in("ecx") 0xC000_0100u32,
+                in("eax") fs_base as u32,
+                in("edx") (fs_base >> 32) as u32,
+            );
+            crate::serial::write_str("[restore_fs_base] FS_BASE restored\r\n");
+        }
+    }
 }
 
 pub fn init() {

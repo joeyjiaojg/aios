@@ -525,12 +525,12 @@ pub fn setup_user_context(
     // AT_NULL terminator
     user_stack.push_u64(0).ok(); // AT_NULL value
     user_stack.push_u64(0).ok(); // AT_NULL type = 0
-    // AT_RANDOM
+                                 // AT_RANDOM
     user_stack.push_u64(random_ptr).ok(); // AT_RANDOM value = ptr to random bytes
-    user_stack.push_u64(25).ok();         // AT_RANDOM type = 25
-    // AT_PAGESZ
+    user_stack.push_u64(25).ok(); // AT_RANDOM type = 25
+                                  // AT_PAGESZ
     user_stack.push_u64(4096).ok(); // AT_PAGESZ value
-    user_stack.push_u64(6).ok();    // AT_PAGESZ type = 6
+    user_stack.push_u64(6).ok(); // AT_PAGESZ type = 6
 
     // Push NULL envp terminator (empty envp)
     user_stack.push_u64(0).ok();
