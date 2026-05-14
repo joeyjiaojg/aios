@@ -375,12 +375,13 @@ pub fn exec_cmd(_cmd: &str, args: &[&str]) -> Result<(), &'static str> {
         crate::serial::write_str("exec: calling start_user_program...\r\n");
     }
 
-    // Transition to ring 3 — does not return.
+    // Transition to ring 3. Returns here when the user process calls exit (via longjmp in sys_exit).
     crate::elf::start_user_program(
         &context,
         selectors.user_code_selector,
         selectors.user_data_selector,
     );
+    Ok(())
 }
 
 fn print_decimal(val: usize) {

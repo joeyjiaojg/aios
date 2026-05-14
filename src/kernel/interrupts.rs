@@ -16,12 +16,12 @@ pub const PIC_2_OFFSET: u8 = PIC_1_OFFSET + 8;
 
 static PICS: Mutex<Option<ChainedPics>> = Mutex::new(None);
 
-// The IDT must live in a static with a stable address for the lifetime of the kernel.
-// It is written once during init() (before interrupts are enabled) and never modified
-// again, so no runtime lock is needed for reads after that point.
 static mut IDT: InterruptDescriptorTable = InterruptDescriptorTable::new();
 
 pub static TIMER_TICK: AtomicBool = AtomicBool::new(false);
+
+/// Set by sys_exit; syscall_dispatch longjmps back to the shell after handle_syscall returns.
+pub static PROCESS_EXITED: AtomicBool = AtomicBool::new(false);
 
 // Raw syscall trampoline: saves caller-saved GPRs, calls syscall_dispatch,
 // restores GPRs, and returns via iretq. Registered via set_handler_addr so
@@ -121,17 +121,30 @@ pub extern "C" fn syscall_dispatch(
             a3  = out(reg) arg3,
         );
     }
-    crate::serial::write_str("[syscall] num=");
-    // Print syscall number
-    let num_str = match num {
-        0 => "read",
-        1 => "write",
-        60 => "exit",
-        _ => "unknown",
-    };
-    crate::serial::write_str(num_str);
-    crate::serial::write_str("\r\n");
-    crate::syscalls::handle_syscall(num, arg1, arg2, arg3) as i64
+    let result = crate::syscalls::handle_syscall(num, arg1, arg2, arg3);
+
+    // If the process called exit, longjmp back to the shell via the saved RBP.
+    // The SYSCALL_MANAGER mutex is already released by handle_syscall before it returns.
+    if PROCESS_EXITED.swap(false, Ordering::AcqRel) {
+        let saved_rbp = crate::elf::SAVED_RBP.load(Ordering::Relaxed);
+        if saved_rbp != 0 {
+            // # Safety
+            // Restores the kernel stack to start_user_program's frame (saved before iretq).
+            // pop rbp restores the caller's frame pointer; ret returns to exec_cmd's call site.
+            // The SYSCALL_MANAGER mutex is already released; no other locks are held.
+            unsafe {
+                core::arch::asm!(
+                    "mov rsp, {rbp}",
+                    "pop rbp",
+                    "ret",
+                    rbp = in(reg) saved_rbp,
+                    options(noreturn)
+                );
+            }
+        }
+    }
+
+    result as i64
 }
 
 pub fn init() {

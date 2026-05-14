@@ -6,7 +6,11 @@
 //         export p2_table and boot_stack_top from boot.S for use here.
 
 use crate::memory::FrameAllocator;
+use core::sync::atomic::{AtomicU64, Ordering};
 use x86_64::structures::gdt::SegmentSelector;
+
+/// RBP saved at entry to start_user_program. sys_exit uses it to longjmp back.
+pub static SAVED_RBP: AtomicU64 = AtomicU64::new(0);
 
 const EI_NIDENT: usize = 16;
 const ELF_MAGIC: [u8; 4] = [0x7F, b'E', b'L', b'F'];
@@ -537,7 +541,7 @@ pub fn start_user_program(
     context: &UserContext,
     user_cs: SegmentSelector,
     user_ss: SegmentSelector,
-) -> ! {
+) {
     if crate::debug::is_debug_enabled() {
         crate::serial::write_str("[elf] start_user_program: setting up TSS\r\n");
     }
@@ -643,6 +647,15 @@ pub fn start_user_program(
     //   RSP (user stack pointer)
     //   SS  (user data selector with RPL=3)
     // Also sets rdi=argc, rsi=argv, rdx=0 (no envp) for System V ABI
+
+    // Save RBP so sys_exit can longjmp back to exec_cmd's call site.
+    // # Safety: reading rbp register value to save for stack restoration on exit.
+    let saved_rbp: u64;
+    unsafe {
+        core::arch::asm!("mov {}, rbp", out(reg) saved_rbp, options(pure, nomem, nostack));
+    }
+    SAVED_RBP.store(saved_rbp, Ordering::Relaxed);
+
     unsafe {
         // Push iretq frame onto kernel stack (current RSP).
         // Push in reverse order so iretq pops RIP first.
@@ -665,7 +678,7 @@ pub fn start_user_program(
             rip = in(reg) rip_val,
             argc = in(reg) argc,
             argv = in(reg) argv_ptr,
-            options(noreturn)
+            // No options(noreturn): sys_exit longjmps back to this function's caller.
         );
     }
 }

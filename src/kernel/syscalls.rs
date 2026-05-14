@@ -561,8 +561,10 @@ fn sys_exit(status: usize, _arg2: usize, _arg3: usize) -> isize {
     let mut table = crate::process::PROCESS_TABLE.lock();
     table.set_exit_status(pid, status as i32);
     drop(table);
-    // # Safety: halting from ring-0 after syscall entry is safe
-    unsafe { core::arch::asm!("hlt") };
+    // Signal syscall_dispatch to longjmp back to the shell after we return.
+    // The SYSCALL_MANAGER mutex is still held here; syscall_dispatch checks
+    // the flag only after handle_syscall returns (which releases the mutex).
+    crate::interrupts::PROCESS_EXITED.store(true, core::sync::atomic::Ordering::Release);
     0
 }
 
