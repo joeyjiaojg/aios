@@ -106,10 +106,9 @@ core::arch::global_asm!(
 
 /// Called from the int 0x80 trampoline with syscall registers already in place.
 /// Returns the syscall result in rax (via normal Rust return convention).
+/// Note: This function is called with no arguments, so we read syscall args directly from registers.
 #[no_mangle]
-pub extern "C" fn syscall_dispatch(
-    _unused: u64, // placeholder — the real args arrive in rdi/rsi/rdx/rax
-) -> i64 {
+pub extern "C" fn syscall_dispatch() -> i64 {
     // Read syscall arguments from registers via inline asm.
     let (num, arg1, arg2, arg3): (usize, usize, usize, usize);
     // # Safety

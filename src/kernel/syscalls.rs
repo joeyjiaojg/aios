@@ -393,6 +393,15 @@ fn sys_read(fd: usize, buf: usize, count: usize) -> isize {
 }
 
 fn sys_write(fd: usize, buf: usize, count: usize) -> isize {
+    if crate::debug::is_debug_enabled() {
+        crate::serial::write_str("[write] fd=");
+        crate::serial::write_usize(fd);
+        crate::serial::write_str(" buf=0x");
+        crate::serial::write_usize(buf);
+        crate::serial::write_str(" count=");
+        crate::serial::write_usize(count);
+        crate::serial::write_str("\r\n");
+    }
     if fd == 1 || fd == 2 {
         if buf == 0 || count == 0 {
             return 0;
