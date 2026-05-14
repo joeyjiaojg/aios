@@ -131,12 +131,13 @@ pub extern "C" fn syscall_dispatch(
     }
     let result = crate::syscalls::handle_syscall(num, arg1, arg2, arg3);
 
-    // Always-on minimal trace: "[sc:N=R]" per syscall, one line each.
-    crate::serial::write_str("[sc:");
-    crate::serial::write_usize(num);
-    crate::serial::write_str("=");
-    crate::serial::write_isize(result);
-    crate::serial::write_str("]\r\n");
+    if crate::debug::is_debug_enabled() {
+        crate::serial::write_str("[sc:");
+        crate::serial::write_usize(num);
+        crate::serial::write_str("=");
+        crate::serial::write_isize(result);
+        crate::serial::write_str("]\r\n");
+    }
 
     // If the process called exit, re-enter the shell on a fresh kernel stack.
     // handle_syscall already released the SYSCALL_MANAGER mutex before returning.
@@ -329,53 +330,55 @@ extern "x86-interrupt" fn page_fault_handler(
 ) {
     use x86_64::registers::control::Cr2;
 
-    crate::serial::write_str("\r\n[FAULT] Page Fault!\r\n");
-    crate::serial::write_str("  Faulting address (CR2): 0x");
-    // # Safety
-    // Reading CR2 after a page fault is safe; it contains the faulting address.
-    let cr2 = Cr2::read_raw();
-    print_hex(cr2);
-    crate::serial::write_str("\r\n  Error code: ");
-    print_hex(error_code.bits());
-    crate::serial::write_str("\r\n    ");
-    if error_code.contains(x86_64::structures::idt::PageFaultErrorCode::PROTECTION_VIOLATION) {
-        crate::serial::write_str("PROTECTION_VIOLATION ");
-    } else {
-        crate::serial::write_str("NOT_PRESENT ");
-    }
-    if error_code.contains(x86_64::structures::idt::PageFaultErrorCode::CAUSED_BY_WRITE) {
-        crate::serial::write_str("WRITE ");
-    } else {
-        crate::serial::write_str("READ ");
-    }
-    if error_code.contains(x86_64::structures::idt::PageFaultErrorCode::USER_MODE) {
-        crate::serial::write_str("USER_MODE ");
-    } else {
-        crate::serial::write_str("KERNEL_MODE ");
-    }
-    if error_code.contains(x86_64::structures::idt::PageFaultErrorCode::INSTRUCTION_FETCH) {
-        crate::serial::write_str("INSTRUCTION_FETCH");
-    }
-    crate::serial::write_str("\r\n  RIP: 0x");
-    print_hex(stack_frame.instruction_pointer.as_u64());
-    crate::serial::write_str("\r\n  RSP: 0x");
-    print_hex(stack_frame.stack_pointer.as_u64());
-    crate::serial::write_str("\r\n  CS: 0x");
-    print_hex(stack_frame.code_segment.0 as u64);
-    // Dump bytes at RIP so we can identify the faulting instruction
-    crate::serial::write_str("\r\n  bytes@RIP:");
-    let rip = stack_frame.instruction_pointer.as_u64() as *const u8;
-    for i in 0..8usize {
+    if crate::debug::is_debug_enabled() {
+        crate::serial::write_str("\r\n[FAULT] Page Fault!\r\n");
+        crate::serial::write_str("  Faulting address (CR2): 0x");
         // # Safety
-        // Reading user/kernel memory at RIP for diagnostic purposes.
-        // Wrapped in a volatile read; if the page is not mapped the read will
-        // double-fault (acceptable in a halt-loop fault handler).
-        let byte = unsafe { core::ptr::read_volatile(rip.add(i)) };
-        crate::serial::write_byte(b' ');
-        crate::serial::write_byte(b"0123456789abcdef"[(byte >> 4) as usize]);
-        crate::serial::write_byte(b"0123456789abcdef"[(byte & 0xf) as usize]);
+        // Reading CR2 after a page fault is safe; it contains the faulting address.
+        let cr2 = Cr2::read_raw();
+        print_hex(cr2);
+        crate::serial::write_str("\r\n  Error code: ");
+        print_hex(error_code.bits());
+        crate::serial::write_str("\r\n    ");
+        if error_code.contains(x86_64::structures::idt::PageFaultErrorCode::PROTECTION_VIOLATION) {
+            crate::serial::write_str("PROTECTION_VIOLATION ");
+        } else {
+            crate::serial::write_str("NOT_PRESENT ");
+        }
+        if error_code.contains(x86_64::structures::idt::PageFaultErrorCode::CAUSED_BY_WRITE) {
+            crate::serial::write_str("WRITE ");
+        } else {
+            crate::serial::write_str("READ ");
+        }
+        if error_code.contains(x86_64::structures::idt::PageFaultErrorCode::USER_MODE) {
+            crate::serial::write_str("USER_MODE ");
+        } else {
+            crate::serial::write_str("KERNEL_MODE ");
+        }
+        if error_code.contains(x86_64::structures::idt::PageFaultErrorCode::INSTRUCTION_FETCH) {
+            crate::serial::write_str("INSTRUCTION_FETCH");
+        }
+        crate::serial::write_str("\r\n  RIP: 0x");
+        print_hex(stack_frame.instruction_pointer.as_u64());
+        crate::serial::write_str("\r\n  RSP: 0x");
+        print_hex(stack_frame.stack_pointer.as_u64());
+        crate::serial::write_str("\r\n  CS: 0x");
+        print_hex(stack_frame.code_segment.0 as u64);
+        // Dump bytes at RIP so we can identify the faulting instruction
+        crate::serial::write_str("\r\n  bytes@RIP:");
+        let rip = stack_frame.instruction_pointer.as_u64() as *const u8;
+        for i in 0..8usize {
+            // # Safety
+            // Reading user/kernel memory at RIP for diagnostic purposes.
+            // Wrapped in a volatile read; if the page is not mapped the read will
+            // double-fault (acceptable in a halt-loop fault handler).
+            let byte = unsafe { core::ptr::read_volatile(rip.add(i)) };
+            crate::serial::write_byte(b' ');
+            crate::serial::write_byte(b"0123456789abcdef"[(byte >> 4) as usize]);
+            crate::serial::write_byte(b"0123456789abcdef"[(byte & 0xf) as usize]);
+        }
+        crate::serial::write_str("\r\n");
     }
-    crate::serial::write_str("\r\n");
 
     loop {
         // # Safety
@@ -388,32 +391,34 @@ extern "x86-interrupt" fn general_protection_fault_handler(
     stack_frame: InterruptStackFrame,
     error_code: u64,
 ) {
-    crate::serial::write_str("\r\n[FAULT] General Protection Fault!\r\n");
-    crate::serial::write_str("  Error code: 0x");
-    print_hex(error_code);
-    crate::serial::write_str("\r\n  RIP: 0x");
-    print_hex(stack_frame.instruction_pointer.as_u64());
-    crate::serial::write_str("\r\n  RSP: 0x");
-    print_hex(stack_frame.stack_pointer.as_u64());
-    crate::serial::write_str("\r\n  CS: 0x");
-    print_hex(stack_frame.code_segment.0 as u64);
-    crate::serial::write_str("\r\n  RFLAGS: 0x");
-    print_hex(stack_frame.cpu_flags.bits());
-    crate::serial::write_str("\r\n");
-
-    if error_code != 0 {
-        let external = (error_code & 1) != 0;
-        let table = (error_code >> 1) & 0x3;
-        let index = (error_code >> 3) & 0x1FFF;
-        crate::serial::write_str("  Selector: ");
-        if external {
-            crate::serial::write_str("external ");
-        }
-        crate::serial::write_str("table=");
-        print_hex(table);
-        crate::serial::write_str(" index=");
-        print_hex(index);
+    if crate::debug::is_debug_enabled() {
+        crate::serial::write_str("\r\n[FAULT] General Protection Fault!\r\n");
+        crate::serial::write_str("  Error code: 0x");
+        print_hex(error_code);
+        crate::serial::write_str("\r\n  RIP: 0x");
+        print_hex(stack_frame.instruction_pointer.as_u64());
+        crate::serial::write_str("\r\n  RSP: 0x");
+        print_hex(stack_frame.stack_pointer.as_u64());
+        crate::serial::write_str("\r\n  CS: 0x");
+        print_hex(stack_frame.code_segment.0 as u64);
+        crate::serial::write_str("\r\n  RFLAGS: 0x");
+        print_hex(stack_frame.cpu_flags.bits());
         crate::serial::write_str("\r\n");
+
+        if error_code != 0 {
+            let external = (error_code & 1) != 0;
+            let table = (error_code >> 1) & 0x3;
+            let index = (error_code >> 3) & 0x1FFF;
+            crate::serial::write_str("  Selector: ");
+            if external {
+                crate::serial::write_str("external ");
+            }
+            crate::serial::write_str("table=");
+            print_hex(table);
+            crate::serial::write_str(" index=");
+            print_hex(index);
+            crate::serial::write_str("\r\n");
+        }
     }
 
     loop {
@@ -427,14 +432,16 @@ extern "x86-interrupt" fn stack_segment_fault_handler(
     stack_frame: InterruptStackFrame,
     error_code: u64,
 ) {
-    crate::serial::write_str("\r\n[FAULT] Stack Segment Fault!\r\n");
-    crate::serial::write_str("  Error code: 0x");
-    print_hex(error_code);
-    crate::serial::write_str("\r\n  RIP: 0x");
-    print_hex(stack_frame.instruction_pointer.as_u64());
-    crate::serial::write_str("\r\n  RSP: 0x");
-    print_hex(stack_frame.stack_pointer.as_u64());
-    crate::serial::write_str("\r\n");
+    if crate::debug::is_debug_enabled() {
+        crate::serial::write_str("\r\n[FAULT] Stack Segment Fault!\r\n");
+        crate::serial::write_str("  Error code: 0x");
+        print_hex(error_code);
+        crate::serial::write_str("\r\n  RIP: 0x");
+        print_hex(stack_frame.instruction_pointer.as_u64());
+        crate::serial::write_str("\r\n  RSP: 0x");
+        print_hex(stack_frame.stack_pointer.as_u64());
+        crate::serial::write_str("\r\n");
+    }
 
     loop {
         // # Safety
