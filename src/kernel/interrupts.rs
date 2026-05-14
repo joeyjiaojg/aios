@@ -146,15 +146,15 @@ pub extern "C" fn syscall_dispatch(
     if PROCESS_EXITED.swap(false, Ordering::AcqRel) {
         // # Safety
         // Resetting RSP to boot_stack_top (top of the 64 KiB kernel stack) gives us
-        // a clean stack. jmp (not call) to shell_prompt_loop so no return address is
-        // pushed; shell_prompt_loop runs the command loop until the kernel stops.
+        // a clean stack. jmp (not call) to shell_prompt_loop_entry so no return address is
+        // pushed; shell_prompt_loop_entry runs the command loop until the kernel stops.
         unsafe {
             let stack_top = &boot_stack_top as *const u8 as u64;
             core::arch::asm!(
                 "mov rsp, {stack}",
                 "jmp {resume}",
                 stack = in(reg) stack_top,
-                resume = sym crate::shell::shell_prompt_loop,
+                resume = sym crate::shell::shell_prompt_loop_entry,
                 options(noreturn)
             );
         }

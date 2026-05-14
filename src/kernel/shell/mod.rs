@@ -30,6 +30,21 @@ pub fn stop_shell() {
     set_running(false);
 }
 
+/// Wrapper function for jumping from syscall trampoline after process exit.
+/// This function is called via jmp from the syscall trampoline, so it must
+/// not return (it's an infinite loop).
+#[no_mangle]
+pub extern "C" fn shell_prompt_loop_entry() -> ! {
+    loop {
+        shell_prompt_loop();
+        // If shell_prompt_loop returns, we've exited the shell
+        // Just halt the CPU
+        // # Safety
+        // HLT in the idle loop is safe; we've exited the shell loop.
+        unsafe { core::arch::asm!("hlt") }
+    }
+}
+
 pub fn run_shell() {
     set_running(true);
     crate::serial::write_str("AIOS Shell v1.0\r\n");
