@@ -144,6 +144,9 @@ pub extern "C" fn syscall_dispatch(
     // We must NOT touch the current (trampoline) stack since it may be partially
     // overwritten; instead reset RSP to boot_stack_top and jmp to the shell loop.
     if PROCESS_EXITED.swap(false, Ordering::AcqRel) {
+        if crate::debug::is_debug_enabled() {
+            crate::serial::write_str("[syscall] PROCESS_EXITED detected, jumping to shell\r\n");
+        }
         // # Safety
         // Resetting RSP to boot_stack_top (top of the 64 KiB kernel stack) gives us
         // a clean stack. jmp (not call) to shell_prompt_loop_entry so no return address is
