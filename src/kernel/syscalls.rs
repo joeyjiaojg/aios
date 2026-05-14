@@ -1031,35 +1031,32 @@ fn sys_openat(dirfd: usize, path_ptr: usize, flags: usize) -> isize {
     let abs_path: &str = if path_str.starts_with('/') {
         path_str
     } else {
-        // relative path: prepend CWD (AT_FDCWD = -100) or dirfd's path
-        let base: &str = if dirfd as i64 == -100 {
-            let pid = crate::process::get_current_pid();
-            let table = crate::process::PROCESS_TABLE.lock();
-            // get_process borrows the table; use "/" as fallback for now
-            let _ = (pid, table);
+        // "." means the current working directory itself — resolve to "/" directly.
+        if path_str == "." {
             "/"
         } else {
-            "/"
-        };
-        let base_bytes = base.as_bytes();
-        let mut pos = 0;
-        for &b in base_bytes {
-            if pos < 255 {
-                abs_buf[pos] = b;
+            // relative path: prepend CWD (AT_FDCWD = -100) or dirfd's path
+            let base: &str = if dirfd as i64 == -100 { "/" } else { "/" };
+            let base_bytes = base.as_bytes();
+            let mut pos = 0;
+            for &b in base_bytes {
+                if pos < 255 {
+                    abs_buf[pos] = b;
+                    pos += 1;
+                }
+            }
+            if pos > 0 && abs_buf[pos - 1] != b'/' {
+                abs_buf[pos] = b'/';
                 pos += 1;
             }
-        }
-        if pos > 0 && abs_buf[pos - 1] != b'/' {
-            abs_buf[pos] = b'/';
-            pos += 1;
-        }
-        for &b in path_str.as_bytes() {
-            if pos < 255 {
-                abs_buf[pos] = b;
-                pos += 1;
+            for &b in path_str.as_bytes() {
+                if pos < 255 {
+                    abs_buf[pos] = b;
+                    pos += 1;
+                }
             }
+            core::str::from_utf8(&abs_buf[..pos]).unwrap_or(path_str)
         }
-        core::str::from_utf8(&abs_buf[..pos]).unwrap_or(path_str)
     };
 
     // O_DIRECTORY = 0x10000 (octal 0200000)

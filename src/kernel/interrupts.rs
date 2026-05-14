@@ -128,6 +128,14 @@ pub extern "C" fn syscall_dispatch(
     }
     let result = crate::syscalls::handle_syscall(num, arg1, arg2, arg3);
 
+    if crate::debug::is_debug_enabled() {
+        crate::serial::write_str("[sc:");
+        crate::serial::write_usize(num);
+        crate::serial::write_str("=");
+        crate::serial::write_isize(result);
+        crate::serial::write_str("]\r\n");
+    }
+
     // If the process called exit, re-enter the shell on a fresh kernel stack.
     // handle_syscall already released the SYSCALL_MANAGER mutex before returning.
     // We must NOT touch the current (trampoline) stack since it may be partially
