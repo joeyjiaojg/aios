@@ -308,14 +308,17 @@ pub fn exec_cmd(_cmd: &str, args: &[&str]) -> Result<(), &'static str> {
     if crate::debug::is_debug_enabled() {
         crate::serial::write_str("exec: calling setup_user_context...\r\n");
     }
-    // Set up user context (loads ELF, prepares stack, argc/argv).
-    // We pass "/init" as argv[0].
-    let args_bytes: &[&[u8]] = &[path.as_bytes()];
+    // Build argv: args[0] is the program path; remaining args[1..] are passed through.
+    let mut args_buf: [&[u8]; 16] = [b""; 16];
+    let argc = args.len().min(16);
+    for (i, a) in args[..argc].iter().enumerate() {
+        args_buf[i] = a.as_bytes();
+    }
     let context = crate::elf::setup_user_context(
         elf_data,
         &mut allocator,
         USER_MEM_BASE as *mut u8,
-        args_bytes,
+        &args_buf[..argc],
     )
     .map_err(|e| {
         crate::serial::write_str("exec: ELF setup failed: ");

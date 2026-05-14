@@ -34,7 +34,11 @@ pub fn run_shell() {
     set_running(true);
     crate::serial::write_str("AIOS Shell v1.0\r\n");
     crate::serial::write_str("Type 'help' for available commands.\r\n\r\n");
+    shell_prompt_loop();
+}
 
+/// Inner prompt loop — called by run_shell() and re-entered after a user process exits.
+pub fn shell_prompt_loop() {
     let mut input_buf = [0u8; MAX_INPUT_LEN];
     let mut input_len: usize;
 

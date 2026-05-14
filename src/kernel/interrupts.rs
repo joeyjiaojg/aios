@@ -23,6 +23,11 @@ pub static TIMER_TICK: AtomicBool = AtomicBool::new(false);
 /// Set by sys_exit; syscall_dispatch longjmps back to the shell after handle_syscall returns.
 pub static PROCESS_EXITED: AtomicBool = AtomicBool::new(false);
 
+extern "C" {
+    // Top of the 64 KiB boot stack exported from boot.S (same address used by TSS).
+    static boot_stack_top: u8;
+}
+
 // Raw syscall trampoline: saves caller-saved GPRs, calls syscall_dispatch,
 // restores GPRs, and returns via iretq. Registered via set_handler_addr so
 // the IDT does not impose the x86-interrupt ABI on it.
@@ -123,24 +128,24 @@ pub extern "C" fn syscall_dispatch(
     }
     let result = crate::syscalls::handle_syscall(num, arg1, arg2, arg3);
 
-    // If the process called exit, longjmp back to the shell via the saved RBP.
-    // The SYSCALL_MANAGER mutex is already released by handle_syscall before it returns.
+    // If the process called exit, re-enter the shell on a fresh kernel stack.
+    // handle_syscall already released the SYSCALL_MANAGER mutex before returning.
+    // We must NOT touch the current (trampoline) stack since it may be partially
+    // overwritten; instead reset RSP to boot_stack_top and jmp to the shell loop.
     if PROCESS_EXITED.swap(false, Ordering::AcqRel) {
-        let saved_rbp = crate::elf::SAVED_RBP.load(Ordering::Relaxed);
-        if saved_rbp != 0 {
-            // # Safety
-            // Restores the kernel stack to start_user_program's frame (saved before iretq).
-            // pop rbp restores the caller's frame pointer; ret returns to exec_cmd's call site.
-            // The SYSCALL_MANAGER mutex is already released; no other locks are held.
-            unsafe {
-                core::arch::asm!(
-                    "mov rsp, {rbp}",
-                    "pop rbp",
-                    "ret",
-                    rbp = in(reg) saved_rbp,
-                    options(noreturn)
-                );
-            }
+        // # Safety
+        // Resetting RSP to boot_stack_top (top of the 64 KiB kernel stack) gives us
+        // a clean stack. jmp (not call) to shell_prompt_loop so no return address is
+        // pushed; shell_prompt_loop runs the command loop until the kernel stops.
+        unsafe {
+            let stack_top = &boot_stack_top as *const u8 as u64;
+            core::arch::asm!(
+                "mov rsp, {stack}",
+                "jmp {resume}",
+                stack = in(reg) stack_top,
+                resume = sym crate::shell::shell_prompt_loop,
+                options(noreturn)
+            );
         }
     }
 
