@@ -128,13 +128,12 @@ pub extern "C" fn syscall_dispatch(
     }
     let result = crate::syscalls::handle_syscall(num, arg1, arg2, arg3);
 
-    if crate::debug::is_debug_enabled() {
-        crate::serial::write_str("[sc:");
-        crate::serial::write_usize(num);
-        crate::serial::write_str("=");
-        crate::serial::write_isize(result);
-        crate::serial::write_str("]\r\n");
-    }
+    // Always-on minimal trace: "[sc:N=R]" per syscall, one line each.
+    crate::serial::write_str("[sc:");
+    crate::serial::write_usize(num);
+    crate::serial::write_str("=");
+    crate::serial::write_isize(result);
+    crate::serial::write_str("]\r\n");
 
     // If the process called exit, re-enter the shell on a fresh kernel stack.
     // handle_syscall already released the SYSCALL_MANAGER mutex before returning.
@@ -339,6 +338,19 @@ extern "x86-interrupt" fn page_fault_handler(
     print_hex(stack_frame.stack_pointer.as_u64());
     crate::serial::write_str("\r\n  CS: 0x");
     print_hex(stack_frame.code_segment.0 as u64);
+    // Dump bytes at RIP so we can identify the faulting instruction
+    crate::serial::write_str("\r\n  bytes@RIP:");
+    let rip = stack_frame.instruction_pointer.as_u64() as *const u8;
+    for i in 0..8usize {
+        // # Safety
+        // Reading user/kernel memory at RIP for diagnostic purposes.
+        // Wrapped in a volatile read; if the page is not mapped the read will
+        // double-fault (acceptable in a halt-loop fault handler).
+        let byte = unsafe { core::ptr::read_volatile(rip.add(i)) };
+        crate::serial::write_byte(b' ');
+        crate::serial::write_byte(b"0123456789abcdef"[(byte >> 4) as usize]);
+        crate::serial::write_byte(b"0123456789abcdef"[(byte & 0xf) as usize]);
+    }
     crate::serial::write_str("\r\n");
 
     loop {
