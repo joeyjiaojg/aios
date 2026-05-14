@@ -90,10 +90,6 @@ impl FdEntry {
             offset: 0,
         }
     }
-
-    fn path_str(&self) -> &str {
-        core::str::from_utf8(&self.path[..self.path_len]).unwrap_or("")
-    }
 }
 
 struct FdTable {

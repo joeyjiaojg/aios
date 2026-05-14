@@ -251,7 +251,7 @@ pub fn init_syscall() {
         core::arch::asm!("wrmsr", in("ecx") 0xC000_0081u32, in("eax") star as u32, in("edx") (star >> 32) as u32);
 
         // LSTAR: 64-bit syscall handler address
-        let lstar = syscall_native_trampoline as usize as u64;
+        let lstar = syscall_native_trampoline as *const () as usize as u64;
         core::arch::asm!("wrmsr", in("ecx") 0xC000_0082u32, in("eax") lstar as u32, in("edx") (lstar >> 32) as u32);
 
         // SFMASK: clear IF (bit 9) on syscall entry
