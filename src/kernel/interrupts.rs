@@ -169,7 +169,6 @@ pub extern "C" fn restore_fs_base() {
     // # Safety
     // This is called from the syscall trampoline before sysretq, so we're still
     // in kernel mode. We read the saved FS_BASE value and write it back to the MSR.
-    crate::serial::write_str("[restore_fs_base]\r\n");
     unsafe {
         let fs_base = crate::syscalls::get_current_fs_base();
         if fs_base != 0 {
@@ -178,6 +177,7 @@ pub extern "C" fn restore_fs_base() {
                 in("ecx") 0xC000_0100u32,
                 in("eax") fs_base as u32,
                 in("edx") (fs_base >> 32) as u32,
+                options(nostack, nomem, preserves_flags)
             );
         }
     }
