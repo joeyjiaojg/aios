@@ -10,6 +10,8 @@ pub extern "C" fn kernel_main(mbi_ptr: u64) -> ! {
     crate::serial::init();
     println!("[aios] kernel_main entered, mbi={:#x}", mbi_ptr);
 
+    crate::debug::enable_debug();
+
     crate::gdt::init();
     println!("[aios] GDT initialized");
 

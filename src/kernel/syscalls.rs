@@ -557,6 +557,11 @@ fn sys_exit(status: usize, _arg2: usize, _arg3: usize) -> isize {
     let mut table = crate::process::PROCESS_TABLE.lock();
     table.set_exit_status(pid, status as i32);
     drop(table);
+    // Clear FS_BASE before exiting so restore_fs_base() doesn't try to restore
+    // a user-mode address that's no longer valid.
+    unsafe {
+        CURRENT_FS_BASE = 0;
+    }
     // Signal syscall_dispatch to longjmp back to the shell after we return.
     // The SYSCALL_MANAGER mutex is still held here; syscall_dispatch checks
     // the flag only after handle_syscall returns (which releases the mutex).
