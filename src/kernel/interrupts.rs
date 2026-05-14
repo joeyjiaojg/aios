@@ -167,19 +167,8 @@ pub extern "C" fn restore_fs_base() {
     // # Safety
     // This is called from the syscall trampoline before sysretq, so we're still
     // in kernel mode. We read the saved FS_BASE value and write it back to the MSR.
-    crate::serial::write_str("[restore_fs_base] called\r\n");
     unsafe {
         let fs_base = crate::syscalls::get_current_fs_base();
-        crate::serial::write_str("[restore_fs_base] fs_base=0x");
-        for i in (0..16).rev() {
-            let nibble = ((fs_base >> (i * 4)) & 0xF) as u8;
-            crate::serial::write_byte(if nibble < 10 {
-                b'0' + nibble
-            } else {
-                b'a' + (nibble - 10)
-            });
-        }
-        crate::serial::write_str("\r\n");
         if fs_base != 0 {
             core::arch::asm!(
                 "wrmsr",
@@ -187,7 +176,6 @@ pub extern "C" fn restore_fs_base() {
                 in("eax") fs_base as u32,
                 in("edx") (fs_base >> 32) as u32,
             );
-            crate::serial::write_str("[restore_fs_base] FS_BASE restored\r\n");
         }
     }
 }
