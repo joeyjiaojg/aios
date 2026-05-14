@@ -497,25 +497,46 @@ pub fn setup_user_context(
         arg_addrs[i] = ptr as u64;
     }
 
-    // System V ABI stack layout (high to low address):
-    // [argument strings]
-    // [NULL]           <- envp[0]
-    // [NULL]           <- argv[argc]
-    // [argv[argc-1]]
-    // ...
-    // [argv[1]]
-    // [argv[0]]
-    // [argc]
-    // [...rest of stack...]
+    // System V AMD64 ABI stack layout (addresses grow upward, RSP points at argc):
+    //   argc
+    //   argv[0..argc-1]
+    //   NULL              <- argv terminator
+    //   NULL              <- envp[0] (empty envp → terminator immediately)
+    //   auxv[0].type      <- AT_PAGESZ = 6
+    //   auxv[0].value     <- 4096
+    //   auxv[1].type      <- AT_RANDOM = 25
+    //   auxv[1].value     <- ptr to 16 random bytes
+    //   AT_NULL = 0       <- auxv terminator type
+    //   0                 <- auxv terminator value
+    //   [16 random bytes] <- pointed to by AT_RANDOM value above
+    //   [argument strings]
 
     if crate::debug::is_debug_enabled() {
         crate::serial::write_str("[elf] setup_user_context: pushing arg pointers\r\n");
     }
-    // Push NULL for envp terminator
+
+    // Push 16 zero bytes as AT_RANDOM data (at highest position, below strings)
     user_stack.push_u64(0).ok();
-    // Push NULL for argv terminator
     user_stack.push_u64(0).ok();
-    // Push argv pointers in reverse order (so argv[0] is lowest)
+    let random_ptr = user_stack.sp();
+
+    // Push auxv entries in reverse (last entry = lowest address after pushes complete).
+    // Each auxv entry is a (type, value) pair; push value then type so type lands lower.
+    // AT_NULL terminator
+    user_stack.push_u64(0).ok(); // AT_NULL value
+    user_stack.push_u64(0).ok(); // AT_NULL type = 0
+    // AT_RANDOM
+    user_stack.push_u64(random_ptr).ok(); // AT_RANDOM value = ptr to random bytes
+    user_stack.push_u64(25).ok();         // AT_RANDOM type = 25
+    // AT_PAGESZ
+    user_stack.push_u64(4096).ok(); // AT_PAGESZ value
+    user_stack.push_u64(6).ok();    // AT_PAGESZ type = 6
+
+    // Push NULL envp terminator (empty envp)
+    user_stack.push_u64(0).ok();
+    // Push NULL argv terminator
+    user_stack.push_u64(0).ok();
+    // Push argv pointers in reverse order (so argv[0] is at lowest address)
     for i in (0..argc).rev() {
         user_stack.push_u64(arg_addrs[i]).ok();
     }
