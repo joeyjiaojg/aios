@@ -39,7 +39,7 @@ impl Process {
             cwd: [0u8; CWD_SIZE],
             cwd_len: 0,
             brk_end: 0x800000,
-            mmap_next: 0x1000_0000,
+            mmap_next: 0x0400_0000, // 64 MiB — well within 256 MiB QEMU RAM
         }
     }
 

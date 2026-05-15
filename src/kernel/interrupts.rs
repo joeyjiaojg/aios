@@ -28,6 +28,11 @@ extern "C" {
     static boot_stack_top: u8;
 }
 
+/// Saved user RSP during native syscall; restored before sysretq.
+static mut SYSCALL_USER_RSP: u64 = 0;
+/// Kernel stack top for native syscall; set in init_syscall() from boot_stack_top.
+static mut SYSCALL_KERNEL_RSP: u64 = 0;
+
 // Raw syscall trampoline: saves caller-saved GPRs, calls syscall_dispatch,
 // restores GPRs, and returns via iretq. Registered via set_handler_addr so
 // the IDT does not impose the x86-interrupt ABI on it.
@@ -35,17 +40,11 @@ extern "C" {
 // Linux x86_64 syscall convention via int 0x80 (32-bit compat) reuses:
 //   rax = syscall number, rdi = arg1, rsi = arg2, rdx = arg3
 // We honour the same layout so a static ELF built for this kernel works.
+// Before calling syscall_dispatch (extern "C") we shuffle into C ABI:
+//   rdi=num, rsi=arg1, rdx=arg2, rcx=arg3
 core::arch::global_asm!(
     ".global syscall_int80_trampoline",
     "syscall_int80_trampoline:",
-    // DEBUG: Write '*' to COM1 (0x3F8) to signal int 0x80 entry
-    "push rax",
-    "push rdx",
-    "mov al, 0x2A",  // '*' character
-    "mov dx, 0x3F8", // COM1 port
-    "out dx, al",
-    "pop rdx",
-    "pop rax",
     "push rbp",
     "push rbx",
     "push r10",
@@ -54,7 +53,11 @@ core::arch::global_asm!(
     "push r13",
     "push r14",
     "push r15",
-    // rax=syscall_num, rdi=arg1, rsi=arg2, rdx=arg3 already in place per ABI
+    // Shuffle rax/rdi/rsi/rdx into extern "C" argument registers for syscall_dispatch
+    "mov rcx, rdx",  // arg3 → rcx (4th C arg)
+    "mov rdx, rsi",  // arg2 → rdx (3rd C arg)
+    "mov rsi, rdi",  // arg1 → rsi (2nd C arg)
+    "mov rdi, rax",  // num  → rdi (1st C arg)
     "call syscall_dispatch",
     // result returned in rax by syscall_dispatch
     "pop r15",
@@ -71,16 +74,24 @@ core::arch::global_asm!(
 // Native syscall trampoline: handles the `syscall` instruction from ring 3.
 // On entry: rcx=user RIP (saved by CPU), r11=user RFLAGS (saved by CPU),
 //           rax=syscall number, rdi=arg1, rsi=arg2, rdx=arg3, r10=arg4.
-// We preserve rcx/r11 across the dispatch call since sysretq restores
-// RIP from rcx and RFLAGS from r11.
+//
+// IMPORTANT: `syscall` does NOT switch the stack pointer. We must switch to the
+// kernel stack (SYSCALL_KERNEL_RSP) immediately and restore the user RSP before
+// sysretq. Running kernel code on the user stack risks corrupting user memory and
+// page-table entries that are identity-mapped in the same region.
+//
+// Before calling syscall_dispatch (extern "C") we shuffle into C ABI:
+//   rdi=num, rsi=arg1, rdx=arg2, rcx=arg3
+// Note: user rcx (RIP) is saved before we clobber rcx for arg3.
 core::arch::global_asm!(
     ".global syscall_native_trampoline",
     "syscall_native_trampoline:",
-    // rcx = user RIP (must survive until sysretq)
-    // r11 = user RFLAGS (must survive until sysretq)
-    // Save all registers that syscall_dispatch (extern "C") may clobber,
-    // except rax which carries the return value.
-    "push rcx", // user RIP — restored by sysretq
+    // rcx = user RIP, r11 = user RFLAGS (both saved by CPU's syscall instruction)
+    // rsp is still the USER stack — switch to kernel stack immediately.
+    "mov [{user_rsp}], rsp",   // save user RSP
+    "mov rsp, [{kernel_rsp}]", // switch to kernel stack
+    // Now on the kernel stack — safe to push.
+    "push rcx", // user RIP — restored by sysretq (save before shuffling args)
     "push r11", // user RFLAGS — restored by sysretq
     "push rbp",
     "push rbx",
@@ -88,10 +99,18 @@ core::arch::global_asm!(
     "push r13",
     "push r14",
     "push r15",
-    // rax=num, rdi=arg1, rsi=arg2, rdx=arg3 already match syscall_dispatch ABI
+    // Shuffle rax/rdi/rsi/rdx into extern "C" argument registers for syscall_dispatch
+    "mov rcx, rdx",  // arg3 → rcx (4th C arg; user rcx already saved above)
+    "mov rdx, rsi",  // arg2 → rdx (3rd C arg)
+    "mov rsi, rdi",  // arg1 → rsi (2nd C arg)
+    "mov rdi, rax",  // num  → rdi (1st C arg)
     "call syscall_dispatch",
-    // Restore FS_BASE before returning to user mode
+    // Restore FS_BASE before returning to user mode.
+    // restore_fs_base is extern "C" and may clobber rax (it uses it as input
+    // to wrmsr). Save/restore rax so the syscall return value survives.
+    "push rax",
     "call {restore_fs_base}",
+    "pop rax",
     "pop r15",
     "pop r14",
     "pop r13",
@@ -100,40 +119,30 @@ core::arch::global_asm!(
     "pop rbp",
     "pop r11", // restore user RFLAGS for sysretq
     "pop rcx", // restore user RIP for sysretq
+    // Restore user RSP before sysretq (sysretq needs it in rsp)
+    "mov rsp, [{user_rsp}]",
     "sysretq",
+    user_rsp    = sym SYSCALL_USER_RSP,
+    kernel_rsp  = sym SYSCALL_KERNEL_RSP,
     restore_fs_base = sym restore_fs_base,
 );
 
-/// Called from the int 0x80 trampoline with syscall registers already in place.
-/// Returns the syscall result in rax (via normal Rust return convention).
-/// Note: This function is called with no arguments, so we read syscall args directly from registers.
+/// Called from both trampolines with syscall args already in C calling convention:
+///   rdi=num, rsi=arg1, rdx=arg2, rcx=arg3
 #[no_mangle]
-pub extern "C" fn syscall_dispatch() -> i64 {
-    // Read syscall arguments from registers via inline asm.
-    let (num, arg1, arg2, arg3): (usize, usize, usize, usize);
-    // # Safety
-    // Reading rax/rdi/rsi/rdx here is safe: we are in the syscall trampoline
-    // context where these registers contain the syscall number and arguments
-    // placed there by the user-mode caller before executing `int 0x80`.
-    // No memory is read or written; only register values are captured.
-    unsafe {
-        core::arch::asm!(
-            "mov {num}, rax",
-            "mov {a1}, rdi",
-            "mov {a2}, rsi",
-            "mov {a3}, rdx",
-            num = out(reg) num,
-            a1  = out(reg) arg1,
-            a2  = out(reg) arg2,
-            a3  = out(reg) arg3,
-        );
-    }
+pub extern "C" fn syscall_dispatch(num: usize, arg1: usize, arg2: usize, arg3: usize) -> i64 {
     let result = crate::syscalls::handle_syscall(num, arg1, arg2, arg3);
 
     if crate::debug::is_debug_enabled() {
         crate::serial::write_str("[sc:");
         crate::serial::write_usize(num);
-        crate::serial::write_str("=");
+        crate::serial::write_str("(");
+        crate::serial::write_usize(arg1);
+        crate::serial::write_str(",");
+        crate::serial::write_usize(arg2);
+        crate::serial::write_str(",");
+        crate::serial::write_usize(arg3);
+        crate::serial::write_str(")=");
         crate::serial::write_isize(result);
         crate::serial::write_str("]\r\n");
     }
@@ -242,6 +251,10 @@ pub fn init_syscall() {
     // Writing standard x86_64 syscall MSRs during single-threaded boot init.
     // All MSR addresses are documented in the Intel/AMD SDMs.
     unsafe {
+        // Point the native syscall trampoline at the kernel stack top so it never
+        // runs on the user-mode stack (syscall does not switch RSP automatically).
+        SYSCALL_KERNEL_RSP = &boot_stack_top as *const u8 as u64;
+
         // Enable SCE bit in IA32_EFER (0xC000_0080)
         let efer_lo: u32;
         let efer_hi: u32;
@@ -539,6 +552,6 @@ mod tests {
     #[test]
     fn test_syscall_dispatch_exists() {
         // Verify the dispatch function is callable (not dead-stripped).
-        let _ = syscall_dispatch as unsafe extern "C" fn(u64) -> i64;
+        let _ = syscall_dispatch as extern "C" fn(usize, usize, usize, usize) -> i64;
     }
 }

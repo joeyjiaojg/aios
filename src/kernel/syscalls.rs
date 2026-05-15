@@ -593,7 +593,7 @@ fn sys_brk(addr: usize, _arg2: usize, _arg3: usize) -> isize {
         let old = proc.brk_end;
         proc.brk_end = addr;
         drop(table);
-        crate::elf::map_user_segment(old as u64, addr as u64);
+        crate::elf::map_user_segment(old as u64, (addr - old) as u64);
     }
     addr as isize
 }
@@ -609,7 +609,7 @@ fn sys_mmap(_addr: usize, len: usize, _prot: usize) -> isize {
     let base = proc.mmap_next;
     proc.mmap_next = base + len_aligned;
     drop(table);
-    crate::elf::map_user_segment(base as u64, (base + len_aligned) as u64);
+    crate::elf::map_user_segment(base as u64, len_aligned as u64);
     base as isize
 }
 
