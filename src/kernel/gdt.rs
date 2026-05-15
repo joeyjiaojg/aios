@@ -85,13 +85,12 @@ pub fn init() {
 }
 
 pub fn setup_tss_stack(kernel_stack_top: VirtAddr) {
-    // # Safety
-    // TSS is a static mut that is only accessed here during TSS setup (before
-    // ring-3 transitions) and never concurrently. privilege_stack_table[0] is
-    // the ring-0 stack pointer that the CPU loads automatically on interrupts
-    // from ring 3. Writing it here is required for proper user→kernel stack switching.
+    // # Safety: same as above.
     unsafe {
         TSS.privilege_stack_table[0] = kernel_stack_top;
+        // Also set IST[0] (index 0 = IST entry 1) so the page fault handler
+        // can use an IST-based switch, which is more robust than RSP0.
+        TSS.interrupt_stack_table[0] = kernel_stack_top;
 
         if crate::debug::is_debug_enabled() {
             crate::serial::write_str("[gdt] TSS privilege_stack_table[0] = 0x");
@@ -111,6 +110,12 @@ pub fn setup_tss_stack(kernel_stack_top: VirtAddr) {
 
 pub fn get_selectors() -> Option<GdtSelectors> {
     SELECTORS.lock().clone()
+}
+
+/// Read the current TSS RSP0 (ring-0 stack pointer for ring-3→ring-0 transitions).
+pub fn get_tss_rsp0() -> u64 {
+    // # Safety: TSS is a static with a lifetime that spans the kernel's lifetime.
+    unsafe { TSS.privilege_stack_table[0].as_u64() }
 }
 
 #[cfg(test)]

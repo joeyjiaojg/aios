@@ -88,17 +88,33 @@ core::arch::global_asm!(
     "syscall_native_trampoline:",
     // rcx = user RIP, r11 = user RFLAGS (both saved by CPU's syscall instruction)
     // rsp is still the USER stack — switch to kernel stack immediately.
+    // Debug: write '>' to COM1 to confirm entry
+    "push rax",
+    "push rdx",
+    "mov al, 0x3E",  // '>'
+    "mov dx, 0x3F8",
+    "out dx, al",
+    "pop rdx",
+    "pop rax",
     "mov [{user_rsp}], rsp",   // save user RSP
     "mov rsp, [{kernel_rsp}]", // switch to kernel stack
-    // Now on the kernel stack — safe to push.
-    "push rcx", // user RIP — restored by sysretq (save before shuffling args)
-    "push r11", // user RFLAGS — restored by sysretq
+    // Save all registers that the Linux syscall ABI requires the kernel to preserve.
+    // rcx (user RIP) and r11 (user RFLAGS) are implicitly clobbered by the CPU.
+    // All others (r8, r9, r10, rdi, rsi, rdx, rbp, rbx, r12–r15) MUST survive.
+    "push rcx",  // user RIP (for sysretq)
+    "push r11",  // user RFLAGS (for sysretq)
     "push rbp",
     "push rbx",
     "push r12",
     "push r13",
     "push r14",
     "push r15",
+    "push r8",   // user r8 — callers (e.g. musl) keep live state here across syscalls
+    "push r9",
+    "push r10",
+    "push rdi",  // original arg1
+    "push rsi",  // original arg2
+    "push rdx",  // original arg3
     // Shuffle rax/rdi/rsi/rdx into extern "C" argument registers for syscall_dispatch
     "mov rcx, rdx",  // arg3 → rcx (4th C arg; user rcx already saved above)
     "mov rdx, rsi",  // arg2 → rdx (3rd C arg)
@@ -106,19 +122,25 @@ core::arch::global_asm!(
     "mov rdi, rax",  // num  → rdi (1st C arg)
     "call syscall_dispatch",
     // Restore FS_BASE before returning to user mode.
-    // restore_fs_base is extern "C" and may clobber rax (it uses it as input
-    // to wrmsr). Save/restore rax so the syscall return value survives.
+    // push/pop rax so the syscall return value survives.
     "push rax",
     "call {restore_fs_base}",
     "pop rax",
+    // Restore all user-visible registers in reverse push order.
+    "pop rdx",
+    "pop rsi",
+    "pop rdi",
+    "pop r10",
+    "pop r9",
+    "pop r8",
     "pop r15",
     "pop r14",
     "pop r13",
     "pop r12",
     "pop rbx",
     "pop rbp",
-    "pop r11", // restore user RFLAGS for sysretq
-    "pop rcx", // restore user RIP for sysretq
+    "pop r11",  // restore user RFLAGS for sysretq
+    "pop rcx",  // restore user RIP for sysretq
     // Restore user RSP before sysretq (sysretq needs it in rsp)
     "mov rsp, [{user_rsp}]",
     "sysretq",
@@ -131,6 +153,11 @@ core::arch::global_asm!(
 ///   rdi=num, rsi=arg1, rdx=arg2, rcx=arg3
 #[no_mangle]
 pub extern "C" fn syscall_dispatch(num: usize, arg1: usize, arg2: usize, arg3: usize) -> i64 {
+    if crate::debug::is_debug_enabled() {
+        crate::serial::write_str("[sc?");
+        crate::serial::write_usize(num);
+        crate::serial::write_str("]\r\n");
+    }
     let result = crate::syscalls::handle_syscall(num, arg1, arg2, arg3);
 
     if crate::debug::is_debug_enabled() {
@@ -207,7 +234,8 @@ pub fn init() {
     unsafe {
         IDT.breakpoint.set_handler_fn(breakpoint_handler);
         IDT.double_fault.set_handler_fn(double_fault_handler);
-        IDT.page_fault.set_handler_fn(page_fault_handler);
+        IDT.page_fault.set_handler_fn(page_fault_handler)
+            .set_stack_index(0); // IST[0] = reliable dedicated stack
         IDT.general_protection_fault
             .set_handler_fn(general_protection_fault_handler);
         IDT.stack_segment_fault
@@ -318,9 +346,30 @@ fn configure_pit_timer() {
 extern "x86-interrupt" fn breakpoint_handler(_stack_frame: InterruptStackFrame) {}
 
 extern "x86-interrupt" fn double_fault_handler(
-    _stack_frame: InterruptStackFrame,
+    stack_frame: InterruptStackFrame,
     _error_code: u64,
 ) -> ! {
+    // Always print — double faults are fatal regardless of debug mode.
+    // CR2 still holds the address from the original (pre-double-fault) page fault.
+    crate::serial::write_str("\r\n[DOUBLE FAULT] RIP=0x");
+    print_hex(stack_frame.instruction_pointer.as_u64());
+    crate::serial::write_str(" RSP=0x");
+    print_hex(stack_frame.stack_pointer.as_u64());
+    crate::serial::write_str(" CS=0x");
+    print_hex(stack_frame.code_segment.0 as u64);
+    {
+        use x86_64::registers::control::Cr2;
+        let cr2 = unsafe { Cr2::read_raw() };
+        crate::serial::write_str(" CR2=0x");
+        print_hex(cr2);
+    }
+    // Print live TSS RSP0 to verify the CPU's ring-0 stack pointer.
+    {
+        let rsp0 = crate::gdt::get_tss_rsp0();
+        crate::serial::write_str(" TSS_RSP0=0x");
+        print_hex(rsp0);
+    }
+    crate::serial::write_str("\r\n");
     loop {
         // # Safety
         // HLT in a double-fault handler is safe; we cannot recover so we halt.
@@ -344,56 +393,27 @@ extern "x86-interrupt" fn page_fault_handler(
     error_code: x86_64::structures::idt::PageFaultErrorCode,
 ) {
     use x86_64::registers::control::Cr2;
-
-    if crate::debug::is_debug_enabled() {
-        crate::serial::write_str("\r\n[FAULT] Page Fault!\r\n");
-        crate::serial::write_str("  Faulting address (CR2): 0x");
-        // # Safety
-        // Reading CR2 after a page fault is safe; it contains the faulting address.
-        let cr2 = Cr2::read_raw();
-        print_hex(cr2);
-        crate::serial::write_str("\r\n  Error code: ");
-        print_hex(error_code.bits());
-        crate::serial::write_str("\r\n    ");
-        if error_code.contains(x86_64::structures::idt::PageFaultErrorCode::PROTECTION_VIOLATION) {
-            crate::serial::write_str("PROTECTION_VIOLATION ");
-        } else {
-            crate::serial::write_str("NOT_PRESENT ");
-        }
-        if error_code.contains(x86_64::structures::idt::PageFaultErrorCode::CAUSED_BY_WRITE) {
-            crate::serial::write_str("WRITE ");
-        } else {
-            crate::serial::write_str("READ ");
-        }
-        if error_code.contains(x86_64::structures::idt::PageFaultErrorCode::USER_MODE) {
-            crate::serial::write_str("USER_MODE ");
-        } else {
-            crate::serial::write_str("KERNEL_MODE ");
-        }
-        if error_code.contains(x86_64::structures::idt::PageFaultErrorCode::INSTRUCTION_FETCH) {
-            crate::serial::write_str("INSTRUCTION_FETCH");
-        }
-        crate::serial::write_str("\r\n  RIP: 0x");
-        print_hex(stack_frame.instruction_pointer.as_u64());
-        crate::serial::write_str("\r\n  RSP: 0x");
-        print_hex(stack_frame.stack_pointer.as_u64());
-        crate::serial::write_str("\r\n  CS: 0x");
-        print_hex(stack_frame.code_segment.0 as u64);
-        // Dump bytes at RIP so we can identify the faulting instruction
-        crate::serial::write_str("\r\n  bytes@RIP:");
-        let rip = stack_frame.instruction_pointer.as_u64() as *const u8;
-        for i in 0..8usize {
-            // # Safety
-            // Reading user/kernel memory at RIP for diagnostic purposes.
-            // Wrapped in a volatile read; if the page is not mapped the read will
-            // double-fault (acceptable in a halt-loop fault handler).
-            let byte = unsafe { core::ptr::read_volatile(rip.add(i)) };
-            crate::serial::write_byte(b' ');
-            crate::serial::write_byte(b"0123456789abcdef"[(byte >> 4) as usize]);
-            crate::serial::write_byte(b"0123456789abcdef"[(byte & 0xf) as usize]);
-        }
-        crate::serial::write_str("\r\n");
+    // Raw port-IO byte before any Rust prologue can touch memory.
+    // # Safety: COM1 port write is always safe in ring-0.
+    unsafe {
+        core::arch::asm!(
+            "push rax", "push rdx",
+            "mov al, 0x21",   // '!'
+            "mov dx, 0x3F8",  // COM1
+            "out dx, al",
+            "pop rdx", "pop rax",
+            options(nostack, nomem, preserves_flags)
+        );
     }
+    // Always print minimal info regardless of debug flag — needed for fault diagnosis.
+    crate::serial::write_str("\r\n[PF] CR2=0x");
+    let cr2 = unsafe { Cr2::read_raw() };
+    print_hex(cr2);
+    crate::serial::write_str(" RIP=0x");
+    print_hex(stack_frame.instruction_pointer.as_u64());
+    crate::serial::write_str(" err=");
+    print_hex(error_code.bits());
+    crate::serial::write_str("\r\n");
 
     loop {
         // # Safety

@@ -67,9 +67,11 @@ pub const SYSCALL_WRITEV: usize = 20;
 
 const MAX_SYSCALLS: usize = 512;
 
-// FD table: fds 0/1/2 = stdin/stdout/stderr; user fds start at FD_OFFSET
-const FD_OFFSET: usize = 3;
-const MAX_OPEN_FDS: usize = 13;
+// FD table: fds 0/1/2 are handled specially in sys_read/sys_write; user fds
+// also start at 0 here because musl's opendir expects the kernel to return
+// whatever fd number lands in DIR->fd — and that can be 0.
+const FD_OFFSET: usize = 0;
+const MAX_OPEN_FDS: usize = 16;
 
 #[derive(Copy, Clone)]
 struct FdEntry {
@@ -119,16 +121,13 @@ impl FdTable {
     }
 
     fn free(&mut self, fd: usize) {
-        if fd >= FD_OFFSET && fd - FD_OFFSET < MAX_OPEN_FDS {
-            self.entries[fd - FD_OFFSET] = FdEntry::new();
+        if fd < MAX_OPEN_FDS {
+            self.entries[fd] = FdEntry::new();
         }
     }
 
     fn get(&self, fd: usize) -> Option<&FdEntry> {
-        if fd < FD_OFFSET {
-            return None;
-        }
-        let i = fd - FD_OFFSET;
+        let i = fd; // FD_OFFSET=0, no adjustment needed
         if i < MAX_OPEN_FDS && self.entries[i].used {
             Some(&self.entries[i])
         } else {
@@ -137,10 +136,7 @@ impl FdTable {
     }
 
     fn get_mut(&mut self, fd: usize) -> Option<&mut FdEntry> {
-        if fd < FD_OFFSET {
-            return None;
-        }
-        let i = fd - FD_OFFSET;
+        let i = fd;
         if i < MAX_OPEN_FDS && self.entries[i].used {
             Some(&mut self.entries[i])
         } else {
@@ -447,9 +443,7 @@ fn sys_open(path_ptr: usize, _flags: usize, _mode: usize) -> isize {
 }
 
 fn sys_close(fd: usize, _arg2: usize, _arg3: usize) -> isize {
-    if fd >= FD_OFFSET {
-        FD_TABLE.lock().free(fd);
-    }
+    FD_TABLE.lock().free(fd);
     0
 }
 
@@ -610,6 +604,13 @@ fn sys_mmap(_addr: usize, len: usize, _prot: usize) -> isize {
     proc.mmap_next = base + len_aligned;
     drop(table);
     crate::elf::map_user_segment(base as u64, len_aligned as u64);
+    // Linux guarantees mmap returns zero-initialized pages. musl's calloc relies
+    // on this and skips zeroing. Zero the region so callers see clean memory.
+    // # Safety: base..base+len_aligned is within our identity-mapped physical RAM
+    // and has just been marked user-accessible by map_user_segment.
+    unsafe {
+        core::ptr::write_bytes(base as *mut u8, 0, len_aligned);
+    }
     base as isize
 }
 
@@ -1005,6 +1006,17 @@ fn sys_fcntl(_fd: usize, _cmd: usize, _arg: usize) -> isize {
 fn sys_getdents64(fd: usize, buf_ptr: usize, buf_size: usize) -> isize {
     if buf_ptr == 0 || buf_size == 0 {
         return -1;
+    }
+
+    // DEBUG: print what's actually at DIR+8 (offset 8 from DIR struct = buf_ptr - 0x18 + 0x8)
+    if crate::debug::is_debug_enabled() && fd == 0 && buf_ptr > 0x18 {
+        let dir_ptr = buf_ptr - 0x18;
+        let fd_at_dir = unsafe { *(dir_ptr as *const i32).add(2) }; // offset 8 = 2 * sizeof(i32)
+        crate::serial::write_str("[getdents64] fd=0 but DIR+8=");
+        crate::serial::write_isize(fd_at_dir as isize);
+        crate::serial::write_str(" dir_ptr=0x");
+        crate::serial::write_usize(dir_ptr);
+        crate::serial::write_str("\r\n");
     }
 
     let (dir_path, path_len, start_idx) = {
