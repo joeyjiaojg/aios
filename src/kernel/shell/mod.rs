@@ -37,9 +37,12 @@ pub fn stop_shell() {
 pub extern "C" fn shell_prompt_loop_entry() -> ! {
     loop {
         shell_prompt_loop();
-        // # Safety
-        // HLT in the idle loop is safe; we've exited the shell loop.
-        unsafe { core::arch::asm!("hlt") }
+        // Shell exited (user typed 'exit'). Halt the machine.
+        crate::serial::write_str("Goodbye!\r\n");
+        loop {
+            // # Safety: HLT is safe here; we've cleanly exited.
+            unsafe { core::arch::asm!("hlt") }
+        }
     }
 }
 
