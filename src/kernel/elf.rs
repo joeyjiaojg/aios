@@ -665,19 +665,6 @@ pub fn start_user_program(
     //   SS  (user data selector with RPL=3)
     // Also sets rdi=argc, rsi=argv, rdx=0 (no envp) for System V ABI
 
-    // Print P2[0] value to verify kernel mapping is intact before entering user mode.
-    // # Safety: p2_table is a kernel BSS symbol; always valid to read in ring-0.
-    unsafe {
-        crate::serial::write_str("[elf] P2[0]=0x");
-        let p0: u64 = p2_table[0];
-        let hex_chars = b"0123456789abcdef";
-        for i in (0..16).rev() {
-            let nibble = ((p0 >> (i * 4)) & 0xF) as usize;
-            crate::serial::write_byte(hex_chars[nibble]);
-        }
-        crate::serial::write_str("\r\n");
-    }
-
     unsafe {
         // Push iretq frame onto kernel stack (current RSP).
         // Push in reverse order so iretq pops RIP first.

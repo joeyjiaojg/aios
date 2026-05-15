@@ -389,15 +389,6 @@ fn sys_read(fd: usize, buf: usize, count: usize) -> isize {
 }
 
 fn sys_write(fd: usize, buf: usize, count: usize) -> isize {
-    if crate::debug::is_debug_enabled() {
-        crate::serial::write_str("[write] fd=");
-        crate::serial::write_usize(fd);
-        crate::serial::write_str(" buf=0x");
-        crate::serial::write_usize(buf);
-        crate::serial::write_str(" count=");
-        crate::serial::write_usize(count);
-        crate::serial::write_str("\r\n");
-    }
     if fd == 1 || fd == 2 {
         if buf == 0 || count == 0 {
             return 0;
@@ -1006,17 +997,6 @@ fn sys_fcntl(_fd: usize, _cmd: usize, _arg: usize) -> isize {
 fn sys_getdents64(fd: usize, buf_ptr: usize, buf_size: usize) -> isize {
     if buf_ptr == 0 || buf_size == 0 {
         return -1;
-    }
-
-    // DEBUG: print what's actually at DIR+8 (offset 8 from DIR struct = buf_ptr - 0x18 + 0x8)
-    if crate::debug::is_debug_enabled() && fd == 0 && buf_ptr > 0x18 {
-        let dir_ptr = buf_ptr - 0x18;
-        let fd_at_dir = unsafe { *(dir_ptr as *const i32).add(2) }; // offset 8 = 2 * sizeof(i32)
-        crate::serial::write_str("[getdents64] fd=0 but DIR+8=");
-        crate::serial::write_isize(fd_at_dir as isize);
-        crate::serial::write_str(" dir_ptr=0x");
-        crate::serial::write_usize(dir_ptr);
-        crate::serial::write_str("\r\n");
     }
 
     let (dir_path, path_len, start_idx) = {

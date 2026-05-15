@@ -88,14 +88,6 @@ core::arch::global_asm!(
     "syscall_native_trampoline:",
     // rcx = user RIP, r11 = user RFLAGS (both saved by CPU's syscall instruction)
     // rsp is still the USER stack — switch to kernel stack immediately.
-    // Debug: write '>' to COM1 to confirm entry
-    "push rax",
-    "push rdx",
-    "mov al, 0x3E",  // '>'
-    "mov dx, 0x3F8",
-    "out dx, al",
-    "pop rdx",
-    "pop rax",
     "mov [{user_rsp}], rsp",   // save user RSP
     "mov rsp, [{kernel_rsp}]", // switch to kernel stack
     // Save all registers that the Linux syscall ABI requires the kernel to preserve.
@@ -153,35 +145,9 @@ core::arch::global_asm!(
 ///   rdi=num, rsi=arg1, rdx=arg2, rcx=arg3
 #[no_mangle]
 pub extern "C" fn syscall_dispatch(num: usize, arg1: usize, arg2: usize, arg3: usize) -> i64 {
-    if crate::debug::is_debug_enabled() {
-        crate::serial::write_str("[sc?");
-        crate::serial::write_usize(num);
-        crate::serial::write_str("]\r\n");
-    }
     let result = crate::syscalls::handle_syscall(num, arg1, arg2, arg3);
 
-    if crate::debug::is_debug_enabled() {
-        crate::serial::write_str("[sc:");
-        crate::serial::write_usize(num);
-        crate::serial::write_str("(");
-        crate::serial::write_usize(arg1);
-        crate::serial::write_str(",");
-        crate::serial::write_usize(arg2);
-        crate::serial::write_str(",");
-        crate::serial::write_usize(arg3);
-        crate::serial::write_str(")=");
-        crate::serial::write_isize(result);
-        crate::serial::write_str("]\r\n");
-    }
-
-    // If the process called exit, re-enter the shell on a fresh kernel stack.
-    // handle_syscall already released the SYSCALL_MANAGER mutex before returning.
-    // We must NOT touch the current (trampoline) stack since it may be partially
-    // overwritten; instead reset RSP to boot_stack_top and jmp to the shell loop.
     if PROCESS_EXITED.swap(false, Ordering::AcqRel) {
-        if crate::debug::is_debug_enabled() {
-            crate::serial::write_str("[syscall] PROCESS_EXITED detected, jumping to shell\r\n");
-        }
         // # Safety
         // Resetting RSP to boot_stack_top (top of the 64 KiB kernel stack) gives us
         // a clean stack. jmp (not call) to shell_prompt_loop_entry so no return address is

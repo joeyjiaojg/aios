@@ -35,16 +35,8 @@ pub fn stop_shell() {
 /// not return (it's an infinite loop).
 #[no_mangle]
 pub extern "C" fn shell_prompt_loop_entry() -> ! {
-    if crate::debug::is_debug_enabled() {
-        crate::serial::write_str("[shell] shell_prompt_loop_entry called\r\n");
-    }
     loop {
         shell_prompt_loop();
-        // If shell_prompt_loop returns, we've exited the shell
-        // Just halt the CPU
-        if crate::debug::is_debug_enabled() {
-            crate::serial::write_str("[shell] shell_prompt_loop returned, halting\r\n");
-        }
         // # Safety
         // HLT in the idle loop is safe; we've exited the shell loop.
         unsafe { core::arch::asm!("hlt") }
