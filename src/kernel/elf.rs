@@ -65,9 +65,9 @@ pub fn map_user_segment(vaddr: u64, memsz: u64) {
     let end_entry = end_entry.min(P2_ENTRIES);
     if crate::debug::is_debug_enabled() {
         crate::serial::write_str("[elf] map_user_segment: P2 entries ");
-        crate::serial::write_byte(b'0' + (start_entry as u8));
+        crate::serial::write_usize(start_entry);
         crate::serial::write_str(" to ");
-        crate::serial::write_byte(b'0' + (end_entry as u8));
+        crate::serial::write_usize(end_entry);
         crate::serial::write_str("\r\n");
     }
 
@@ -85,7 +85,7 @@ pub fn map_user_segment(vaddr: u64, memsz: u64) {
         {
             if crate::debug::is_debug_enabled() {
                 crate::serial::write_str("[elf] map_user_segment: marking P2[");
-                crate::serial::write_byte(b'0' + (i as u8));
+                crate::serial::write_usize(i);
                 crate::serial::write_str("] as user-accessible\r\n");
             }
             *entry = (i as u64 * P2_ENTRY_SIZE) | P2_FLAGS_USER;
