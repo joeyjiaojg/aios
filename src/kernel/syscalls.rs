@@ -598,6 +598,10 @@ fn sys_exit(status: usize, _arg2: usize, _arg3: usize) -> isize {
     drop(table);
     // Clear FS_BASE before exiting so restore_fs_base() doesn't try to restore
     // a user-mode address that's no longer valid.
+    // # Safety
+    // CURRENT_FS_BASE is a static mut u64 written only here (on process exit,
+    // single-threaded kernel) and read only in get_current_fs_base(). No concurrent
+    // access is possible because we hold no lock that could be re-entered.
     unsafe {
         CURRENT_FS_BASE = 0;
     }
@@ -954,6 +958,11 @@ fn sys_sigaltstack(_ss: usize, _oss: usize, _arg3: usize) -> isize {
 static mut CURRENT_FS_BASE: u64 = 0;
 
 pub fn get_current_fs_base() -> u64 {
+    // # Safety
+    // CURRENT_FS_BASE is a static mut u64 modified only in sys_exit and sys_arch_prctl,
+    // both of which run in the single-threaded syscall dispatch path. This read is safe
+    // because no concurrent write can occur at the call site (restore_fs_base, called
+    // from the syscall trampoline before sysretq).
     unsafe { CURRENT_FS_BASE }
 }
 
@@ -961,6 +970,10 @@ fn sys_arch_prctl(code: usize, addr: usize, _arg3: usize) -> isize {
     match code {
         0x1002 => {
             // ARCH_SET_FS: write FS_BASE MSR so musl TLS works
+            // # Safety
+            // wrmsr to MSR 0xC000_0100 (FS_BASE) is safe in ring-0; the addr comes
+            // from the user syscall and is stored for later restoration by restore_fs_base.
+            // CURRENT_FS_BASE is a static mut written only in this single-threaded path.
             unsafe {
                 core::arch::asm!(
                     "wrmsr",
