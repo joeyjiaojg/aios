@@ -94,7 +94,7 @@ flowchart LR
     end
 
     subgraph PR["Pull Request"]
-        PR["PR Created<br/>#M"]
+        PR_NODE["PR Created<br/>#M"]
     end
 
     subgraph CI["CI Pipeline"]
@@ -110,8 +110,8 @@ flowchart LR
     end
 
     ISSUE --> FEAT
-    FEAT --> PR
-    PR --> FMT
+    FEAT --> PR_NODE
+    PR_NODE --> FMT
     FMT --> CLIPPY
     CLIPPY --> TEST
     TEST --> AI_REVIEW
