@@ -18,6 +18,23 @@ pub const MAX_PATH_LEN: usize = 256;
 
 static SHELL_RUNNING: spin::Mutex<bool> = spin::Mutex::new(true);
 
+/// Counts consecutive fast /bin/sh exits (i.e. exits without the user
+/// successfully running a command).  After SH_CRASH_THRESHOLD such exits the
+/// kernel stops re-execing /bin/sh and falls back to the built-in shell.
+static SH_CRASH_COUNT: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
+
+const SH_CRASH_THRESHOLD: u8 = 3;
+
+/// Increment the crash counter and return the new value.
+fn sh_crash_inc() -> u8 {
+    SH_CRASH_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed) + 1
+}
+
+/// Reset the crash counter to zero (call after the user runs a command).
+pub fn reset_sh_crash_counter() {
+    SH_CRASH_COUNT.store(0, core::sync::atomic::Ordering::Relaxed);
+}
+
 pub fn is_running() -> bool {
     *SHELL_RUNNING.lock()
 }
@@ -51,22 +68,39 @@ pub fn try_exec_sh() -> Result<(), &'static str> {
 /// address is on the stack.  Must never return.
 ///
 /// Behaviour:
-///   1. Try to re-exec /bin/sh.  On success exec_cmd does `iretq` and this
-///      function effectively never returns — the next process exit will jump
-///      here again.
-///   2. If /bin/sh is not found (ramdisk has no module), fall back to the
-///      built-in prompt loop so the kernel stays interactive.
+///   1. If /bin/sh has not crashed too many times consecutively, increment the
+///      crash counter and try to re-exec /bin/sh.  On success `exec_cmd` does
+///      `iretq` and this function effectively never returns — the next process
+///      exit jumps here again.
+///   2. After SH_CRASH_THRESHOLD consecutive fast exits (the counter is never
+///      reset because the user never typed a command), stop trying /bin/sh and
+///      emit a message.
+///   3. Fall back to the built-in prompt loop.  After the user successfully
+///      runs a command the crash counter is reset, so the next loop iteration
+///      will try /bin/sh again.
 #[no_mangle]
 pub extern "C" fn shell_prompt_loop_entry() -> ! {
     loop {
-        // Try to re-exec the external shell first.
-        match try_exec_sh() {
-            Ok(_) => {
-                // exec_cmd returned without launching (should not happen), so
-                // fall through to the built-in shell below.
+        // Only attempt /bin/sh if it hasn't crashed too many times in a row.
+        let crashes = SH_CRASH_COUNT.load(core::sync::atomic::Ordering::Relaxed);
+        if crashes < SH_CRASH_THRESHOLD {
+            let new_count = sh_crash_inc();
+            match try_exec_sh() {
+                Ok(_) => {
+                    // exec_cmd returned without launching (should not happen).
+                    // Fall through to built-in shell.
+                }
+                Err(_) => {
+                    // /bin/sh not present — fall through to built-in shell.
+                }
             }
-            Err(_) => {
-                // /bin/sh not present — run the built-in interactive shell.
+            // If we reach here after incrementing, /bin/sh either wasn't found
+            // or exec_cmd returned unexpectedly.  If this was the threshold hit,
+            // emit the warning.
+            if new_count >= SH_CRASH_THRESHOLD {
+                crate::serial::write_str(
+                    "[init] /bin/sh crashed too many times, falling back to built-in shell\r\n",
+                );
             }
         }
 
@@ -74,8 +108,9 @@ pub extern "C" fn shell_prompt_loop_entry() -> ! {
         set_running(true);
         shell_prompt_loop();
 
-        // User typed 'exit' in the built-in shell: pause, then loop and try
-        // again (either re-exec /bin/sh or re-enter the built-in shell).
+        // User typed 'exit' in the built-in shell: pause, then loop.
+        // The crash counter was already reset inside shell_prompt_loop when
+        // the user ran a command, so next iteration will try /bin/sh again.
         crate::serial::write_str("Goodbye!\r\nPress Enter to continue...\r\n");
         loop {
             if let Some(b'\r') | Some(b'\n') = crate::serial::read_byte() {
@@ -371,6 +406,10 @@ pub fn shell_prompt_loop() {
         }
 
         history::add_entry(input_str);
+        // The user typed a command: they are interacting, so /bin/sh crashing
+        // was not a tight silent loop.  Reset the crash counter so the next
+        // /bin/sh launch attempt is treated as a fresh start.
+        reset_sh_crash_counter();
 
         let (args, arg_count) = parser::split_command_args(input_str);
         if arg_count == 0 {
@@ -545,5 +584,52 @@ mod tests {
     #[test]
     fn test_shell_mod_get_current_dir_str_is_root() {
         assert_eq!(get_current_dir_str(), "/");
+    }
+
+    // ── SH_CRASH_COUNT / reset_sh_crash_counter ────────────────────────────────
+
+    #[test]
+    fn test_shell_mod_crash_counter_starts_below_threshold() {
+        // After reset the counter must be below SH_CRASH_THRESHOLD.
+        reset_sh_crash_counter();
+        let v = SH_CRASH_COUNT.load(core::sync::atomic::Ordering::Relaxed);
+        assert!(v < SH_CRASH_THRESHOLD);
+    }
+
+    #[test]
+    fn test_shell_mod_crash_counter_reset_sets_zero() {
+        // Manually bump then reset; must read back as 0.
+        SH_CRASH_COUNT.store(SH_CRASH_THRESHOLD, core::sync::atomic::Ordering::Relaxed);
+        reset_sh_crash_counter();
+        assert_eq!(
+            SH_CRASH_COUNT.load(core::sync::atomic::Ordering::Relaxed),
+            0
+        );
+    }
+
+    #[test]
+    fn test_shell_mod_sh_crash_inc_increments() {
+        reset_sh_crash_counter();
+        let v1 = sh_crash_inc();
+        let v2 = SH_CRASH_COUNT.load(core::sync::atomic::Ordering::Relaxed);
+        assert_eq!(v1, 1);
+        assert_eq!(v2, 1);
+        reset_sh_crash_counter();
+    }
+
+    #[test]
+    fn test_shell_mod_sh_crash_inc_three_times_reaches_threshold() {
+        reset_sh_crash_counter();
+        sh_crash_inc();
+        sh_crash_inc();
+        let third = sh_crash_inc();
+        assert_eq!(third, SH_CRASH_THRESHOLD);
+        reset_sh_crash_counter();
+    }
+
+    #[test]
+    fn test_shell_mod_crash_threshold_constant_value() {
+        // Threshold must be exactly 3 as specified.
+        assert_eq!(SH_CRASH_THRESHOLD, 3);
     }
 }
