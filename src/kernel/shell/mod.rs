@@ -56,48 +56,16 @@ pub fn try_exec_sh() -> Result<(), &'static str> {
     builtins::exec_cmd("/bin/sh", &exec_args)
 }
 
-/// Wrapper function for jumping from syscall trampoline after process exit.
-///
-/// Called via `jmp` (not `call`) from the syscall trampoline so no return
-/// address is on the stack.  Must never return.
-///
-/// Behaviour:
-///   1. Try to re-exec /bin/sh.  On success exec_cmd does `iretq` and this
-///      function effectively never returns — the next process exit will jump
-///      here again.
-///   2. If /bin/sh is not found (ramdisk has no module), fall back to the
-///      built-in prompt loop so the kernel stays interactive.
+/// Entry point jumped to (not called) from the syscall trampoline after a
+/// user process exits via `PROCESS_EXITED`.  Runs the built-in shell loop
+/// and re-enters it after the user types `exit`.
 #[no_mangle]
 pub extern "C" fn shell_prompt_loop_entry() -> ! {
     loop {
-        let crashes = SH_CRASH_COUNT.load(core::sync::atomic::Ordering::Relaxed);
-        if crashes < SH_CRASH_THRESHOLD {
-            // Count this exit attempt.
-            SH_CRASH_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-            crate::serial::write_str("[init] launching /bin/sh (attempt ");
-            crate::serial::write_usize((crashes + 1) as usize);
-            crate::serial::write_str("/");
-            crate::serial::write_usize(SH_CRASH_THRESHOLD as usize);
-            crate::serial::write_str(")...\r\n");
-            match try_exec_sh() {
-                Ok(_) => {
-                    // exec_cmd returned without launching — fall through.
-                }
-                Err(_) => {
-                    // /bin/sh not found — fall through to built-in.
-                }
-            }
-        } else {
-            // Crashed too many times: tell the user and drop to built-in shell.
-            crate::serial::write_str(
-                "[init] /bin/sh exited too many times, falling back to built-in shell\r\n",
-            );
-        }
-
-        // Built-in shell fallback.
         set_running(true);
         shell_prompt_loop();
 
+        // User typed 'exit': print farewell, wait for Enter, then loop.
         crate::serial::write_str("Goodbye!\r\nPress Enter to continue...\r\n");
         loop {
             if let Some(b'\r') | Some(b'\n') = crate::serial::read_byte() {
@@ -106,32 +74,16 @@ pub extern "C" fn shell_prompt_loop_entry() -> ! {
             // # Safety: pause reduces CPU usage in the busy-wait.
             unsafe { core::arch::asm!("pause") }
         }
-        // Reset the crash counter so /bin/sh gets another chance after the
-        // user explicitly re-enters the shell.
-        reset_sh_crash_counter();
         set_running(true);
     }
 }
 
 /// Start a shell session.
 ///
-/// Tries /bin/sh first.  If it is present in the ramdisk the kernel will
-/// `iretq` into user space and this function does not meaningfully return
-/// (process exit fires `PROCESS_EXITED` which jmps to `shell_prompt_loop_entry`).
-/// If /bin/sh is absent, falls back to the built-in interactive shell.
+/// Always starts the built-in interactive shell.  The user can run
+/// `/bin/sh` or `/bin/busybox sh` manually from the prompt to launch
+/// the external shell once it has enough syscall support.
 pub fn run_shell() {
-    // Attempt to exec the external shell.
-    match try_exec_sh() {
-        Ok(_) => {
-            // exec_cmd returned without launching — fall through to built-in.
-        }
-        Err(_) => {
-            // /bin/sh not found: use the built-in shell.
-            crate::serial::write_str("[init] /bin/sh not found, using built-in shell\r\n");
-        }
-    }
-
-    // Built-in shell fallback.
     set_running(true);
     crate::serial::write_str("AIOS Shell v1.0\r\n");
     crate::serial::write_str("Type 'help' for available commands.\r\n\r\n");
