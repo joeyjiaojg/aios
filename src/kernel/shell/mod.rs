@@ -30,16 +30,53 @@ pub fn stop_shell() {
     set_running(false);
 }
 
+/// Attempt to exec /bin/sh with no arguments.
+///
+/// Returns `Ok(())` only if the exec path was taken — but in practice
+/// `exec_cmd` never returns on success because it does `iretq` into ring 3.
+/// Returns `Err` when /bin/sh is not found in the ramdisk.
+pub fn try_exec_sh() -> Result<(), &'static str> {
+    if crate::ramdisk::lookup_file("/bin/sh").is_none() {
+        return Err("/bin/sh not found");
+    }
+    // exec_args[0] must be the program path; no additional arguments for a
+    // login shell.
+    let exec_args: [&str; 1] = ["/bin/sh"];
+    builtins::exec_cmd("/bin/sh", &exec_args)
+}
+
 /// Wrapper function for jumping from syscall trampoline after process exit.
-/// This function is called via jmp from the syscall trampoline, so it must
-/// not return (it's an infinite loop).
+///
+/// Called via `jmp` (not `call`) from the syscall trampoline so no return
+/// address is on the stack.  Must never return.
+///
+/// Behaviour:
+///   1. Try to re-exec /bin/sh.  On success exec_cmd does `iretq` and this
+///      function effectively never returns — the next process exit will jump
+///      here again.
+///   2. If /bin/sh is not found (ramdisk has no module), fall back to the
+///      built-in prompt loop so the kernel stays interactive.
 #[no_mangle]
 pub extern "C" fn shell_prompt_loop_entry() -> ! {
     loop {
+        // Try to re-exec the external shell first.
+        match try_exec_sh() {
+            Ok(_) => {
+                // exec_cmd returned without launching (should not happen), so
+                // fall through to the built-in shell below.
+            }
+            Err(_) => {
+                // /bin/sh not present — run the built-in interactive shell.
+            }
+        }
+
+        // Fall back: run the built-in shell loop.
+        set_running(true);
         shell_prompt_loop();
-        // User typed 'exit': print farewell, then wait for Enter and re-enter the shell.
+
+        // User typed 'exit' in the built-in shell: pause, then loop and try
+        // again (either re-exec /bin/sh or re-enter the built-in shell).
         crate::serial::write_str("Goodbye!\r\nPress Enter to continue...\r\n");
-        // Wait for Enter key before re-entering the prompt loop.
         loop {
             if let Some(b'\r') | Some(b'\n') = crate::serial::read_byte() {
                 break;
@@ -51,7 +88,25 @@ pub extern "C" fn shell_prompt_loop_entry() -> ! {
     }
 }
 
+/// Start a shell session.
+///
+/// Tries /bin/sh first.  If it is present in the ramdisk the kernel will
+/// `iretq` into user space and this function does not meaningfully return
+/// (process exit fires `PROCESS_EXITED` which jmps to `shell_prompt_loop_entry`).
+/// If /bin/sh is absent, falls back to the built-in interactive shell.
 pub fn run_shell() {
+    // Attempt to exec the external shell.
+    match try_exec_sh() {
+        Ok(_) => {
+            // exec_cmd returned without launching — fall through to built-in.
+        }
+        Err(_) => {
+            // /bin/sh not found: use the built-in shell.
+            crate::serial::write_str("[init] /bin/sh not found, using built-in shell\r\n");
+        }
+    }
+
+    // Built-in shell fallback.
     set_running(true);
     crate::serial::write_str("AIOS Shell v1.0\r\n");
     crate::serial::write_str("Type 'help' for available commands.\r\n\r\n");
@@ -384,5 +439,111 @@ pub fn set_current_dir(path: &str) -> Result<(), &'static str> {
         Ok(())
     } else {
         Err("Failed to set directory")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── write_usize_serial ──────────────────────────────────────────────────────
+    // The function emits bytes to serial; tests verify it does not panic and
+    // handles edge cases correctly (we cannot capture serial output in unit
+    // tests, but we can ensure the code paths are exercised without panic).
+
+    #[test]
+    fn test_shell_mod_write_usize_serial_zero() {
+        // Must not panic on zero input.
+        write_usize_serial(0);
+    }
+
+    #[test]
+    fn test_shell_mod_write_usize_serial_one() {
+        write_usize_serial(1);
+    }
+
+    #[test]
+    fn test_shell_mod_write_usize_serial_large() {
+        write_usize_serial(usize::MAX);
+    }
+
+    #[test]
+    fn test_shell_mod_write_usize_serial_power_of_ten() {
+        write_usize_serial(1000);
+    }
+
+    // ── is_running / set_running ───────────────────────────────────────────────
+
+    #[test]
+    fn test_shell_mod_set_running_true() {
+        set_running(true);
+        assert!(is_running());
+    }
+
+    #[test]
+    fn test_shell_mod_set_running_false() {
+        set_running(false);
+        assert!(!is_running());
+        // Restore for other tests.
+        set_running(true);
+    }
+
+    #[test]
+    fn test_shell_mod_stop_shell_clears_running() {
+        set_running(true);
+        stop_shell();
+        assert!(!is_running());
+        // Restore.
+        set_running(true);
+    }
+
+    // ── try_exec_sh ────────────────────────────────────────────────────────────
+    // In a unit-test environment the ramdisk is empty, so try_exec_sh must
+    // return Err (not panic).
+
+    #[test]
+    fn test_shell_mod_try_exec_sh_returns_err_when_no_ramdisk() {
+        // Ramdisk is empty in test context → must return Err.
+        let result = try_exec_sh();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_shell_mod_try_exec_sh_error_message_nonempty() {
+        let err = try_exec_sh().unwrap_err();
+        assert!(!err.is_empty());
+    }
+
+    // ── redraw_input ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_shell_mod_redraw_input_empty_buf() {
+        let buf = [0u8; MAX_INPUT_LEN];
+        // Must not panic on empty buffer.
+        redraw_input(&buf, 0, 0);
+    }
+
+    #[test]
+    fn test_shell_mod_redraw_input_cursor_at_end() {
+        let mut buf = [0u8; MAX_INPUT_LEN];
+        buf[0] = b'a';
+        buf[1] = b'b';
+        redraw_input(&buf, 2, 2);
+    }
+
+    #[test]
+    fn test_shell_mod_redraw_input_cursor_in_middle() {
+        let mut buf = [0u8; MAX_INPUT_LEN];
+        buf[0] = b'a';
+        buf[1] = b'b';
+        buf[2] = b'c';
+        redraw_input(&buf, 3, 1);
+    }
+
+    // ── get_current_dir_str ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_shell_mod_get_current_dir_str_is_root() {
+        assert_eq!(get_current_dir_str(), "/");
     }
 }
