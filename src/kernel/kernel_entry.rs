@@ -84,7 +84,17 @@ pub extern "C" fn kernel_main(mbi_ptr: u64) -> ! {
     crate::ramdisk::list_files();
 
     crate::interrupts::enable_interrupts();
-    println!("[aios] Starting shell");
+
+    // Attempt to launch /bin/sh as the default interactive shell.
+    // If /bin/sh is present, exec_cmd does `iretq` into ring 3 and control
+    // returns here only on error.  On successful exec the process exit path
+    // fires PROCESS_EXITED and jmps to shell_prompt_loop_entry().
+    // If /bin/sh is absent, run_shell() falls back to the built-in shell.
+    if crate::ramdisk::lookup_file("/bin/sh").is_some() {
+        println!("[aios] /bin/sh found — exec-ing external shell");
+    } else {
+        println!("[aios] /bin/sh not found — starting built-in shell");
+    }
 
     crate::shell::run_shell();
 
