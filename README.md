@@ -107,24 +107,19 @@ flowchart LR
     subgraph Decision["Decision"]
         APPROVED["✅ APPROVED"]
         REJECTED["❌ REJECTED"]
-        REBASE["Auto-Rebase"]
     end
 
     ISSUE --> FEAT
     FEAT --> PR
-    PR --> CI
-    CI --> FMT
-    CI --> CLIPPY
-    CI --> TEST
-    CI --> AI_REVIEW
+    PR --> FMT
+    FMT --> CLIPPY
+    CLIPPY --> TEST
+    TEST --> AI_REVIEW
 
     AI_REVIEW --> APPROVED
     AI_REVIEW --> REJECTED
 
-    REJECTED --> REBASE
-    REBASE --> PR
-    REJECTED --> FEAT
-
+    REJECTED -->|Fix & Push| FEAT
     APPROVED --> MASTER["✅ Merge to master"]
 ```
 
