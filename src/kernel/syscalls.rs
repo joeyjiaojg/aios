@@ -468,11 +468,9 @@ fn resolve_path<'a>(path: &'a str, abs_buf: &'a mut [u8; 256]) -> &'a str {
             pos += 1;
         }
     }
-    if pos > 0 && abs_buf[pos - 1] != b'/' {
-        if pos < 255 {
-            abs_buf[pos] = b'/';
-            pos += 1;
-        }
+    if pos > 0 && abs_buf[pos - 1] != b'/' && pos < 255 {
+        abs_buf[pos] = b'/';
+        pos += 1;
     }
     for &b in rel.as_bytes() {
         if pos < 255 {
@@ -1071,7 +1069,7 @@ fn sys_getdents64(fd: usize, buf_ptr: usize, buf_size: usize) -> isize {
     written as isize
 }
 
-fn sys_openat(dirfd: usize, path_ptr: usize, flags: usize) -> isize {
+fn sys_openat(_dirfd: usize, path_ptr: usize, flags: usize) -> isize {
     let (path_bytes, path_len) = read_user_str(path_ptr);
     if path_len == 0 {
         return -1;
@@ -1088,7 +1086,7 @@ fn sys_openat(dirfd: usize, path_ptr: usize, flags: usize) -> isize {
             "/"
         } else {
             // relative path: prepend CWD (AT_FDCWD = -100) or dirfd's path
-            let base: &str = if dirfd as i64 == -100 { "/" } else { "/" };
+            let base: &str = "/";
             let base_bytes = base.as_bytes();
             let mut pos = 0;
             for &b in base_bytes {

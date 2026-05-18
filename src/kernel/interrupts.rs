@@ -326,7 +326,7 @@ extern "x86-interrupt" fn double_fault_handler(
     print_hex(stack_frame.code_segment.0 as u64);
     {
         use x86_64::registers::control::Cr2;
-        let cr2 = unsafe { Cr2::read_raw() };
+        let cr2 = Cr2::read_raw();
         crate::serial::write_str(" CR2=0x");
         print_hex(cr2);
     }
@@ -376,7 +376,7 @@ extern "x86-interrupt" fn page_fault_handler(
     }
     // Always print minimal info regardless of debug flag — needed for fault diagnosis.
     crate::serial::write_str("\r\n[PF] CR2=0x");
-    let cr2 = unsafe { Cr2::read_raw() };
+    let cr2 = Cr2::read_raw();
     print_hex(cr2);
     crate::serial::write_str(" RIP=0x");
     print_hex(stack_frame.instruction_pointer.as_u64());
