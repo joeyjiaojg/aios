@@ -37,12 +37,17 @@ pub fn stop_shell() {
 pub extern "C" fn shell_prompt_loop_entry() -> ! {
     loop {
         shell_prompt_loop();
-        // Shell exited (user typed 'exit'). Halt the machine.
-        crate::serial::write_str("Goodbye!\r\n");
+        // User typed 'exit': print farewell, then wait for Enter and re-enter the shell.
+        crate::serial::write_str("Goodbye!\r\nPress Enter to continue...\r\n");
+        // Wait for Enter key before re-entering the prompt loop.
         loop {
-            // # Safety: HLT is safe here; we've cleanly exited.
-            unsafe { core::arch::asm!("hlt") }
+            if let Some(b'\r') | Some(b'\n') = crate::serial::read_byte() {
+                break;
+            }
+            // # Safety: pause reduces CPU usage in the busy-wait.
+            unsafe { core::arch::asm!("pause") }
         }
+        set_running(true);
     }
 }
 

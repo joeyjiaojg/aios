@@ -415,7 +415,9 @@ fn sys_open(path_ptr: usize, _flags: usize, _mode: usize) -> isize {
     if path_len == 0 {
         return -1;
     }
-    let path = core::str::from_utf8(&path_bytes[..path_len]).unwrap_or("");
+    let raw = core::str::from_utf8(&path_bytes[..path_len]).unwrap_or("");
+    let mut abs_buf = [0u8; 256];
+    let path = resolve_path(raw, &mut abs_buf);
     if crate::ramdisk::path_exists(path) {
         FD_TABLE
             .lock()
@@ -438,12 +440,44 @@ fn sys_close(fd: usize, _arg2: usize, _arg3: usize) -> isize {
     0
 }
 
+/// Resolve a path relative to CWD.  ".", "", "./" become CWD.
+/// Relative paths (including those starting with "./") get CWD prepended.
+fn resolve_path<'a>(path: &'a str, abs_buf: &'a mut [u8; 256]) -> &'a str {
+    if path.is_empty() || path == "." || path == "./" {
+        return crate::shell::get_current_dir_str();
+    }
+    if path.starts_with('/') {
+        return path;
+    }
+    // Strip a leading "./" so "./foo" becomes relative "foo"
+    let rel = if let Some(rest) = path.strip_prefix("./") { rest } else { path };
+    if rel.is_empty() {
+        return crate::shell::get_current_dir_str();
+    }
+    // Prepend CWD to the remaining relative segment
+    let cwd = crate::shell::get_current_dir_str();
+    let cwd_b = cwd.as_bytes();
+    let mut pos = 0;
+    for &b in cwd_b {
+        if pos < 255 { abs_buf[pos] = b; pos += 1; }
+    }
+    if pos > 0 && abs_buf[pos - 1] != b'/' {
+        if pos < 255 { abs_buf[pos] = b'/'; pos += 1; }
+    }
+    for &b in rel.as_bytes() {
+        if pos < 255 { abs_buf[pos] = b; pos += 1; }
+    }
+    core::str::from_utf8(&abs_buf[..pos]).unwrap_or(path)
+}
+
 fn sys_stat(path_ptr: usize, stat_ptr: usize, _arg3: usize) -> isize {
     let (path_bytes, path_len) = read_user_str(path_ptr);
     if path_len == 0 || stat_ptr == 0 {
         return -1;
     }
-    let path_str = core::str::from_utf8(&path_bytes[..path_len]).unwrap_or("");
+    let raw = core::str::from_utf8(&path_bytes[..path_len]).unwrap_or("");
+    let mut abs_buf = [0u8; 256];
+    let path_str = resolve_path(raw, &mut abs_buf);
     let is_dir = crate::ramdisk::is_valid_dir(path_str);
     if !is_dir && !crate::ramdisk::path_exists(path_str) {
         return -2;

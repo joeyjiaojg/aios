@@ -102,14 +102,9 @@ pub fn exit_cmd(args: &[&str]) -> Result<(), &'static str> {
     } else {
         args[0].parse::<i32>().unwrap_or(0)
     };
-
-    crate::serial::write_str("Goodbye!\r\n");
-    crate::shell::stop_shell();
-
     let pid = process::get_current_pid();
     let mut table = process::PROCESS_TABLE.lock();
     table.set_exit_status(pid, status);
-
     Ok(())
 }
 
