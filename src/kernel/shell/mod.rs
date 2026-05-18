@@ -30,11 +30,36 @@ pub fn stop_shell() {
     set_running(false);
 }
 
+/// Wrapper function for jumping from syscall trampoline after process exit.
+/// This function is called via jmp from the syscall trampoline, so it must
+/// not return (it's an infinite loop).
+#[no_mangle]
+pub extern "C" fn shell_prompt_loop_entry() -> ! {
+    loop {
+        shell_prompt_loop();
+        // User typed 'exit': print farewell, then wait for Enter and re-enter the shell.
+        crate::serial::write_str("Goodbye!\r\nPress Enter to continue...\r\n");
+        // Wait for Enter key before re-entering the prompt loop.
+        loop {
+            if let Some(b'\r') | Some(b'\n') = crate::serial::read_byte() {
+                break;
+            }
+            // # Safety: pause reduces CPU usage in the busy-wait.
+            unsafe { core::arch::asm!("pause") }
+        }
+        set_running(true);
+    }
+}
+
 pub fn run_shell() {
     set_running(true);
     crate::serial::write_str("AIOS Shell v1.0\r\n");
     crate::serial::write_str("Type 'help' for available commands.\r\n\r\n");
+    shell_prompt_loop();
+}
 
+/// Inner prompt loop — called by run_shell() and re-entered after a user process exits.
+pub fn shell_prompt_loop() {
     let mut input_buf = [0u8; MAX_INPUT_LEN];
     let mut input_len: usize;
 
@@ -65,7 +90,10 @@ pub fn run_shell() {
                 }
                 Some(_) => {}
                 None => {
-                    // No byte ready - continue polling
+                    // No byte ready - yield to reduce CPU usage
+                    // # Safety
+                    // Pause instruction is safe; it reduces CPU usage in busy-wait loops
+                    unsafe { core::arch::asm!("pause") }
                 }
             }
         }
@@ -91,9 +119,34 @@ pub fn run_shell() {
         let cmd = args[0];
         let result = builtins::execute_builtin(cmd, &args[..arg_count]);
         if !result {
-            crate::serial::write_str("Command not found: ");
-            crate::serial::write_str(cmd);
-            crate::serial::write_str("\r\n");
+            // Resolve to absolute path: "/bin/cmd" for bare names
+            let mut path_buf = [0u8; 256];
+            let resolved: &str = if cmd.starts_with('/') {
+                cmd
+            } else {
+                let prefix = b"/bin/";
+                let cb = cmd.as_bytes();
+                let total = prefix.len() + cb.len();
+                if total < 256 {
+                    path_buf[..prefix.len()].copy_from_slice(prefix);
+                    path_buf[prefix.len()..total].copy_from_slice(cb);
+                    core::str::from_utf8(&path_buf[..total]).unwrap_or(cmd)
+                } else {
+                    cmd
+                }
+            };
+
+            if crate::ramdisk::lookup_file(resolved).is_some() {
+                // exec_cmd uses exec_args[0] as the program path
+                let mut exec_args: [&str; MAX_ARGS] = [""; MAX_ARGS];
+                exec_args[0] = resolved;
+                exec_args[1..arg_count].copy_from_slice(&args[1..arg_count]);
+                let _ = builtins::exec_cmd(resolved, &exec_args[..arg_count]);
+            } else {
+                crate::serial::write_str("Command not found: ");
+                crate::serial::write_str(cmd);
+                crate::serial::write_str("\r\n");
+            }
         }
     }
 }

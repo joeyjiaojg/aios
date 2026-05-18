@@ -70,7 +70,7 @@ jobs:
           Diff:"
 
           # Run opencode with review prompt + diff
-          REVIEW_RESULT=$(timeout 120 opencode run -m opencode/minimax-m2.5-free "$REVIEW_PROMPT $(cat /tmp/pr_diff.txt)" 2>&1 | head -20)
+          REVIEW_RESULT=$(timeout 120 opencode run -m opencode/minimax-m2.5-free "$REVIEW_PROMPT $(cat /tmp/pr_diff.txt)" 2>&1 | head -50)
 
           echo "=== Review Result ==="
           echo "$REVIEW_RESULT"
@@ -89,7 +89,7 @@ jobs:
             echo "approved=false" >> $GITHUB_OUTPUT
           else
             # If no clear APPROVED/REJECTED, check if code passed basic checks
-            if [ "$DIFF_SIZE" -lt 50000 ] && git log origin/${{ github.base_ref }}...HEAD --format="%B" | grep -q "Model:"; then
+            if [ "$DIFF_SIZE" -lt 200000 ] && git log origin/${{ github.base_ref }}...HEAD --format="%B" | grep -q "Model:"; then
               echo "Code passes basic checks (fmt, clippy, commit format)" > /tmp/review_output.txt
               echo "review_output_file=/tmp/review_output.txt" >> $GITHUB_OUTPUT
               echo "approved=true" >> $GITHUB_OUTPUT

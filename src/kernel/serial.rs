@@ -53,6 +53,32 @@ pub fn write_str(s: &str) {
     }
 }
 
+pub fn write_usize(mut n: usize) {
+    let mut buf = [0u8; 20];
+    let mut len = 0;
+    if n == 0 {
+        write_byte(b'0');
+        return;
+    }
+    while n > 0 {
+        buf[len] = b'0' + (n % 10) as u8;
+        len += 1;
+        n /= 10;
+    }
+    for i in (0..len).rev() {
+        write_byte(buf[i]);
+    }
+}
+
+pub fn write_isize(n: isize) {
+    if n < 0 {
+        write_byte(b'-');
+        write_usize(n.unsigned_abs());
+    } else {
+        write_usize(n as usize);
+    }
+}
+
 pub fn read_byte() -> Option<u8> {
     // # Safety
     // Reading from I/O port 0x3F8 (COM1) is safe - this is a standard hardware port

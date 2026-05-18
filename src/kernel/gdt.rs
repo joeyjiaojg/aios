@@ -42,8 +42,11 @@ pub fn init() {
     let mut gdt = GDT_TABLE.lock();
     let code_selector = gdt.append(Descriptor::kernel_code_segment());
     let data_selector = gdt.append(Descriptor::kernel_data_segment());
-    let user_code_selector = gdt.append(Descriptor::user_code_segment());
+    // user_data MUST come before user_code so that sysretq works:
+    // sysretq sets SS = STAR[63:48]+8 | 3, CS = STAR[63:48]+16 | 3
+    // With STAR[63:48]=0x10 (kernel_data): SS=0x18|3=user_data, CS=0x20|3=user_code
     let user_data_selector = gdt.append(Descriptor::user_data_segment());
+    let user_code_selector = gdt.append(Descriptor::user_code_segment());
     // # Safety
     // TSS is a static mut accessed only here during single-threaded init.
     // The Descriptor::tss_segment() call requires a reference to TSS, and
@@ -82,31 +85,37 @@ pub fn init() {
 }
 
 pub fn setup_tss_stack(kernel_stack_top: VirtAddr) {
-    // # Safety
-    // TSS is a static mut that is only accessed here during TSS setup (before
-    // ring-3 transitions) and never concurrently. privilege_stack_table[0] is
-    // the ring-0 stack pointer that the CPU loads automatically on interrupts
-    // from ring 3. Writing it here is required for proper user→kernel stack switching.
+    // # Safety: same as above.
     unsafe {
         TSS.privilege_stack_table[0] = kernel_stack_top;
+        // Also set IST[0] (index 0 = IST entry 1) so the page fault handler
+        // can use an IST-based switch, which is more robust than RSP0.
+        TSS.interrupt_stack_table[0] = kernel_stack_top;
 
-        // DEBUG: Verify TSS was written
-        crate::serial::write_str("[gdt] TSS privilege_stack_table[0] = 0x");
-        let rsp0 = TSS.privilege_stack_table[0].as_u64();
-        for i in (0..16).rev() {
-            let nibble = ((rsp0 >> (i * 4)) & 0xF) as u8;
-            crate::serial::write_byte(if nibble < 10 {
-                b'0' + nibble
-            } else {
-                b'a' + (nibble - 10)
-            });
+        if crate::debug::is_debug_enabled() {
+            crate::serial::write_str("[gdt] TSS privilege_stack_table[0] = 0x");
+            let rsp0 = TSS.privilege_stack_table[0].as_u64();
+            for i in (0..16).rev() {
+                let nibble = ((rsp0 >> (i * 4)) & 0xF) as u8;
+                crate::serial::write_byte(if nibble < 10 {
+                    b'0' + nibble
+                } else {
+                    b'a' + (nibble - 10)
+                });
+            }
+            crate::serial::write_str("\r\n");
         }
-        crate::serial::write_str("\r\n");
     }
 }
 
 pub fn get_selectors() -> Option<GdtSelectors> {
     SELECTORS.lock().clone()
+}
+
+/// Read the current TSS RSP0 (ring-0 stack pointer for ring-3→ring-0 transitions).
+pub fn get_tss_rsp0() -> u64 {
+    // # Safety: TSS is a static with a lifetime that spans the kernel's lifetime.
+    unsafe { TSS.privilege_stack_table[0].as_u64() }
 }
 
 #[cfg(test)]
@@ -138,8 +147,9 @@ mod tests {
         let mut gdt = GlobalDescriptorTable::<8>::empty();
         gdt.append(Descriptor::kernel_code_segment());
         gdt.append(Descriptor::kernel_data_segment());
+        gdt.append(Descriptor::user_data_segment());
         let sel = gdt.append(Descriptor::user_code_segment());
-        assert_eq!(sel.index(), 3);
+        assert_eq!(sel.index(), 4);
     }
 
     #[test]
@@ -147,9 +157,8 @@ mod tests {
         let mut gdt = GlobalDescriptorTable::<8>::empty();
         gdt.append(Descriptor::kernel_code_segment());
         gdt.append(Descriptor::kernel_data_segment());
-        gdt.append(Descriptor::user_code_segment());
         let sel = gdt.append(Descriptor::user_data_segment());
-        assert_eq!(sel.index(), 4);
+        assert_eq!(sel.index(), 3);
     }
 
     #[test]
@@ -157,8 +166,8 @@ mod tests {
         let mut gdt = GlobalDescriptorTable::<8>::empty();
         gdt.append(Descriptor::kernel_code_segment());
         gdt.append(Descriptor::kernel_data_segment());
-        gdt.append(Descriptor::user_code_segment());
         gdt.append(Descriptor::user_data_segment());
+        gdt.append(Descriptor::user_code_segment());
         let sel = gdt.append(Descriptor::tss_segment(&TSS));
         assert_eq!(sel.index(), 5);
     }

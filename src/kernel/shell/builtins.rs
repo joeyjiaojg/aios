@@ -102,14 +102,9 @@ pub fn exit_cmd(args: &[&str]) -> Result<(), &'static str> {
     } else {
         args[0].parse::<i32>().unwrap_or(0)
     };
-
-    crate::serial::write_str("Goodbye!\r\n");
-    crate::shell::stop_shell();
-
     let pid = process::get_current_pid();
     let mut table = process::PROCESS_TABLE.lock();
     table.set_exit_status(pid, status);
-
     Ok(())
 }
 
@@ -125,17 +120,40 @@ pub fn echo(args: &[&str]) -> Result<(), &'static str> {
 }
 
 pub fn ls(args: &[&str]) -> Result<(), &'static str> {
-    let _show_hidden = args.contains(&"-a");
-    let _long_format = args.contains(&"-l");
-
     let current = get_current_dir_str();
-    let _path: &str = if args.is_empty() || args[0].starts_with('-') {
+    let path: &str = if args.is_empty() || args[0].starts_with('-') {
         current
     } else {
         args[0]
     };
 
-    crate::ramdisk::list_files();
+    // Resolve relative paths
+    let mut abs_buf = [0u8; 256];
+    let abs_path: &str = if path.starts_with('/') {
+        path
+    } else {
+        let cur = get_current_dir_str().as_bytes();
+        let mut pos = 0;
+        for &b in cur {
+            if pos < 255 {
+                abs_buf[pos] = b;
+                pos += 1;
+            }
+        }
+        if pos > 0 && abs_buf[pos - 1] != b'/' {
+            abs_buf[pos] = b'/';
+            pos += 1;
+        }
+        for &b in path.as_bytes() {
+            if pos < 255 {
+                abs_buf[pos] = b;
+                pos += 1;
+            }
+        }
+        core::str::from_utf8(&abs_buf[..pos]).unwrap_or("/")
+    };
+
+    crate::ramdisk::list_dir(abs_path);
     Ok(())
 }
 
@@ -285,14 +303,17 @@ pub fn exec_cmd(_cmd: &str, args: &[&str]) -> Result<(), &'static str> {
     if crate::debug::is_debug_enabled() {
         crate::serial::write_str("exec: calling setup_user_context...\r\n");
     }
-    // Set up user context (loads ELF, prepares stack, argc/argv).
-    // We pass "/init" as argv[0].
-    let args_bytes: &[&[u8]] = &[path.as_bytes()];
+    // Build argv: args[0] is the program path; remaining args[1..] are passed through.
+    let mut args_buf: [&[u8]; 16] = [b""; 16];
+    let argc = args.len().min(16);
+    for (i, a) in args[..argc].iter().enumerate() {
+        args_buf[i] = a.as_bytes();
+    }
     let context = crate::elf::setup_user_context(
         elf_data,
         &mut allocator,
         USER_MEM_BASE as *mut u8,
-        args_bytes,
+        &args_buf[..argc],
     )
     .map_err(|e| {
         crate::serial::write_str("exec: ELF setup failed: ");
@@ -352,12 +373,13 @@ pub fn exec_cmd(_cmd: &str, args: &[&str]) -> Result<(), &'static str> {
         crate::serial::write_str("exec: calling start_user_program...\r\n");
     }
 
-    // Transition to ring 3 — does not return.
+    // Transition to ring 3. Returns here when the user process calls exit (via longjmp in sys_exit).
     crate::elf::start_user_program(
         &context,
         selectors.user_code_selector,
         selectors.user_data_selector,
     );
+    Ok(())
 }
 
 fn print_decimal(val: usize) {
