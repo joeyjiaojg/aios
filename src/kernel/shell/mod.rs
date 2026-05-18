@@ -58,6 +58,59 @@ pub fn run_shell() {
     shell_prompt_loop();
 }
 
+/// Escape sequence parser state for arrow key detection.
+#[derive(Copy, Clone, PartialEq)]
+enum EscState {
+    /// No escape sequence in progress.
+    Normal,
+    /// Received 0x1B (ESC); waiting for '['.
+    GotEsc,
+    /// Received ESC + '['; waiting for direction character.
+    GotBracket,
+}
+
+/// Redraw the input line after a history load or in-place edit.
+///
+/// Moves the terminal cursor to the start of the line, overwrites with the
+/// new content, then erases any leftover characters from the previous line,
+/// and repositions the cursor at `cursor_pos`.
+fn redraw_input(buf: &[u8], len: usize, cursor_pos: usize) {
+    // Return cursor to start of input (after the prompt "aios$ ").
+    crate::serial::write_str("\r\x1b[6C"); // CR then move right 6 cols past prompt
+                                           // Write current buffer contents.
+    for &b in buf[..len].iter() {
+        crate::serial::write_byte(b);
+    }
+    // Erase to end of line to remove stale characters from a longer previous entry.
+    crate::serial::write_str("\x1b[K");
+    // Reposition cursor: move back to end, then move left by (len - cursor_pos).
+    let move_left = len.saturating_sub(cursor_pos);
+    if move_left > 0 {
+        // Emit ESC [ N D
+        crate::serial::write_str("\x1b[");
+        write_usize_serial(move_left);
+        crate::serial::write_byte(b'D');
+    }
+}
+
+/// Write a usize to serial without allocation.
+fn write_usize_serial(mut n: usize) {
+    if n == 0 {
+        crate::serial::write_byte(b'0');
+        return;
+    }
+    let mut buf = [0u8; 20];
+    let mut len = 0;
+    while n > 0 {
+        buf[len] = b'0' + (n % 10) as u8;
+        n /= 10;
+        len += 1;
+    }
+    for i in (0..len).rev() {
+        crate::serial::write_byte(buf[i]);
+    }
+}
+
 /// Inner prompt loop — called by run_shell() and re-entered after a user process exits.
 pub fn shell_prompt_loop() {
     let mut input_buf = [0u8; MAX_INPUT_LEN];
@@ -71,24 +124,177 @@ pub fn shell_prompt_loop() {
         crate::serial::write_str("aios$ ");
 
         input_len = 0;
+        // cursor_pos: logical index where the next character would be inserted.
+        let mut cursor_pos: usize = 0;
+        // history_pos: None = editing new line; Some(i) = browsing history entry i.
+        // Index 0 = oldest visible entry, history_count-1 = most recent.
+        let mut history_pos: Option<usize> = None;
+        // Saved new-line buffer so Down-arrow can restore it.
+        let mut saved_buf = [0u8; MAX_INPUT_LEN];
+        let mut saved_len: usize = 0;
+        // Escape sequence parser state.
+        let mut esc_state = EscState::Normal;
+
         loop {
             match crate::serial::read_byte() {
+                // ----------------------------------------------------------------
+                // Enter
+                // ----------------------------------------------------------------
                 Some(b'\r') | Some(b'\n') => {
                     crate::serial::write_str("\r\n");
                     break;
                 }
+                // ----------------------------------------------------------------
+                // Backspace / DEL
+                // ----------------------------------------------------------------
                 Some(0x7F) | Some(0x08) => {
-                    if input_len > 0 {
+                    esc_state = EscState::Normal;
+                    if cursor_pos > 0 {
+                        // Remove character at cursor_pos - 1.
+                        for i in (cursor_pos - 1)..input_len.saturating_sub(1) {
+                            input_buf[i] = input_buf[i + 1];
+                        }
+                        cursor_pos -= 1;
                         input_len -= 1;
-                        crate::serial::write_str("\x08 \x08");
+                        input_buf[input_len] = 0;
+                        // Redraw from the deletion point.
+                        crate::serial::write_str("\x08"); // move left one
+                        for &b in input_buf[cursor_pos..input_len].iter() {
+                            crate::serial::write_byte(b);
+                        }
+                        crate::serial::write_str("\x1b[K"); // erase to EOL
+                                                            // Move cursor back to cursor_pos.
+                        let move_back = input_len - cursor_pos;
+                        if move_back > 0 {
+                            crate::serial::write_str("\x1b[");
+                            write_usize_serial(move_back);
+                            crate::serial::write_byte(b'D');
+                        }
                     }
                 }
-                Some(b) if (0x20..0x7F).contains(&b) && input_len < MAX_INPUT_LEN - 1 => {
-                    input_buf[input_len] = b;
-                    input_len += 1;
-                    crate::serial::write_byte(b);
+                // ----------------------------------------------------------------
+                // Escape — start of potential arrow key sequence
+                // ----------------------------------------------------------------
+                Some(0x1B) => {
+                    esc_state = EscState::GotEsc;
                 }
-                Some(_) => {}
+                // ----------------------------------------------------------------
+                // '[' — second byte of CSI
+                // ----------------------------------------------------------------
+                Some(b'[') if esc_state == EscState::GotEsc => {
+                    esc_state = EscState::GotBracket;
+                }
+                // ----------------------------------------------------------------
+                // Arrow keys — final byte of CSI sequence
+                // ----------------------------------------------------------------
+                Some(b'A') if esc_state == EscState::GotBracket => {
+                    // Up arrow: navigate history backwards (towards older entries).
+                    esc_state = EscState::Normal;
+                    let count = history::history_count();
+                    if count == 0 {
+                        // nothing to do
+                    } else {
+                        let new_pos = match history_pos {
+                            None => {
+                                // Save current editing buffer before we browse.
+                                saved_buf[..input_len].copy_from_slice(&input_buf[..input_len]);
+                                saved_len = input_len;
+                                count - 1 // most-recent entry
+                            }
+                            Some(0) => 0, // already at oldest; stay
+                            Some(p) => p - 1,
+                        };
+                        let mut tmp = [0u8; MAX_INPUT_LEN];
+                        if let Some(len) = history::get_entry(new_pos, &mut tmp) {
+                            input_buf[..len].copy_from_slice(&tmp[..len]);
+                            input_len = len;
+                            cursor_pos = len;
+                            history_pos = Some(new_pos);
+                            redraw_input(&input_buf, input_len, cursor_pos);
+                        }
+                    }
+                }
+                Some(b'B') if esc_state == EscState::GotBracket => {
+                    // Down arrow: navigate history forwards (towards newer / blank).
+                    esc_state = EscState::Normal;
+                    match history_pos {
+                        None => {} // already on new line, nothing to do
+                        Some(p) => {
+                            let count = history::history_count();
+                            if p + 1 >= count {
+                                // Restore the saved new-line buffer.
+                                input_buf[..saved_len].copy_from_slice(&saved_buf[..saved_len]);
+                                input_len = saved_len;
+                                cursor_pos = saved_len;
+                                history_pos = None;
+                            } else {
+                                let new_pos = p + 1;
+                                let mut tmp = [0u8; MAX_INPUT_LEN];
+                                if let Some(len) = history::get_entry(new_pos, &mut tmp) {
+                                    input_buf[..len].copy_from_slice(&tmp[..len]);
+                                    input_len = len;
+                                    cursor_pos = len;
+                                    history_pos = Some(new_pos);
+                                }
+                            }
+                            redraw_input(&input_buf, input_len, cursor_pos);
+                        }
+                    }
+                }
+                Some(b'C') if esc_state == EscState::GotBracket => {
+                    // Right arrow: move cursor right.
+                    esc_state = EscState::Normal;
+                    if cursor_pos < input_len {
+                        cursor_pos += 1;
+                        crate::serial::write_str("\x1b[C");
+                    }
+                }
+                Some(b'D') if esc_state == EscState::GotBracket => {
+                    // Left arrow: move cursor left.
+                    esc_state = EscState::Normal;
+                    if cursor_pos > 0 {
+                        cursor_pos -= 1;
+                        crate::serial::write_str("\x1b[D");
+                    }
+                }
+                // ----------------------------------------------------------------
+                // Printable characters
+                // ----------------------------------------------------------------
+                Some(b) if (0x20..0x7F).contains(&b) && input_len < MAX_INPUT_LEN - 1 => {
+                    esc_state = EscState::Normal;
+                    // Insert at cursor_pos (shift right if not at end).
+                    if cursor_pos == input_len {
+                        input_buf[input_len] = b;
+                        input_len += 1;
+                        cursor_pos += 1;
+                        crate::serial::write_byte(b);
+                    } else {
+                        // Shift characters right to make room.
+                        let mut i = input_len;
+                        while i > cursor_pos {
+                            input_buf[i] = input_buf[i - 1];
+                            i -= 1;
+                        }
+                        input_buf[cursor_pos] = b;
+                        input_len += 1;
+                        cursor_pos += 1;
+                        // Redraw from cursor_pos - 1 onwards.
+                        for &b in input_buf[(cursor_pos - 1)..input_len].iter() {
+                            crate::serial::write_byte(b);
+                        }
+                        // Move cursor back to cursor_pos.
+                        let move_back = input_len - cursor_pos;
+                        if move_back > 0 {
+                            crate::serial::write_str("\x1b[");
+                            write_usize_serial(move_back);
+                            crate::serial::write_byte(b'D');
+                        }
+                    }
+                }
+                Some(_) => {
+                    // Any other byte resets escape state (e.g. unrecognised escape).
+                    esc_state = EscState::Normal;
+                }
                 None => {
                     // No byte ready - yield to reduce CPU usage
                     // # Safety
