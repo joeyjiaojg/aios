@@ -16,6 +16,17 @@ pub const MAX_JOBS: usize = 16;
 pub const MAX_HISTORY: usize = 64;
 pub const MAX_PATH_LEN: usize = 256;
 
+/// How many consecutive fast /bin/sh exits before we give up and fall back.
+const SH_CRASH_THRESHOLD: u8 = 3;
+
+/// Counts consecutive /bin/sh exits without user interaction in the built-in shell.
+static SH_CRASH_COUNT: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
+
+/// Reset the crash counter (called when the user types a command in the built-in shell).
+pub fn reset_sh_crash_counter() {
+    SH_CRASH_COUNT.store(0, core::sync::atomic::Ordering::Relaxed);
+}
+
 static SHELL_RUNNING: spin::Mutex<bool> = spin::Mutex::new(true);
 
 pub fn is_running() -> bool {
@@ -59,23 +70,34 @@ pub fn try_exec_sh() -> Result<(), &'static str> {
 #[no_mangle]
 pub extern "C" fn shell_prompt_loop_entry() -> ! {
     loop {
-        // Try to re-exec the external shell first.
-        match try_exec_sh() {
-            Ok(_) => {
-                // exec_cmd returned without launching (should not happen), so
-                // fall through to the built-in shell below.
+        let crashes = SH_CRASH_COUNT.load(core::sync::atomic::Ordering::Relaxed);
+        if crashes < SH_CRASH_THRESHOLD {
+            // Count this exit attempt.
+            SH_CRASH_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            crate::serial::write_str("[init] launching /bin/sh (attempt ");
+            crate::serial::write_usize((crashes + 1) as usize);
+            crate::serial::write_str("/");
+            crate::serial::write_usize(SH_CRASH_THRESHOLD as usize);
+            crate::serial::write_str(")...\r\n");
+            match try_exec_sh() {
+                Ok(_) => {
+                    // exec_cmd returned without launching — fall through.
+                }
+                Err(_) => {
+                    // /bin/sh not found — fall through to built-in.
+                }
             }
-            Err(_) => {
-                // /bin/sh not present — run the built-in interactive shell.
-            }
+        } else {
+            // Crashed too many times: tell the user and drop to built-in shell.
+            crate::serial::write_str(
+                "[init] /bin/sh exited too many times, falling back to built-in shell\r\n",
+            );
         }
 
-        // Fall back: run the built-in shell loop.
+        // Built-in shell fallback.
         set_running(true);
         shell_prompt_loop();
 
-        // User typed 'exit' in the built-in shell: pause, then loop and try
-        // again (either re-exec /bin/sh or re-enter the built-in shell).
         crate::serial::write_str("Goodbye!\r\nPress Enter to continue...\r\n");
         loop {
             if let Some(b'\r') | Some(b'\n') = crate::serial::read_byte() {
@@ -84,6 +106,9 @@ pub extern "C" fn shell_prompt_loop_entry() -> ! {
             // # Safety: pause reduces CPU usage in the busy-wait.
             unsafe { core::arch::asm!("pause") }
         }
+        // Reset the crash counter so /bin/sh gets another chance after the
+        // user explicitly re-enters the shell.
+        reset_sh_crash_counter();
         set_running(true);
     }
 }
@@ -371,6 +396,7 @@ pub fn shell_prompt_loop() {
         }
 
         history::add_entry(input_str);
+        reset_sh_crash_counter(); // user is active; give /bin/sh a fresh window
 
         let (args, arg_count) = parser::split_command_args(input_str);
         if arg_count == 0 {
