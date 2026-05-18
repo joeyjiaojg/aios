@@ -133,8 +133,8 @@ fn redraw_input(buf: &[u8], len: usize, cursor_pos: usize) {
     // Return cursor to start of input (after the prompt "aios$ ").
     crate::serial::write_str("\r\x1b[6C"); // CR then move right 6 cols past prompt
                                            // Write current buffer contents.
-    for i in 0..len {
-        crate::serial::write_byte(buf[i]);
+    for &b in buf[..len].iter() {
+        crate::serial::write_byte(b);
     }
     // Erase to end of line to remove stale characters from a longer previous entry.
     crate::serial::write_str("\x1b[K");
@@ -214,8 +214,8 @@ pub fn shell_prompt_loop() {
                         input_buf[input_len] = 0;
                         // Redraw from the deletion point.
                         crate::serial::write_str("\x08"); // move left one
-                        for i in cursor_pos..input_len {
-                            crate::serial::write_byte(input_buf[i]);
+                        for &b in input_buf[cursor_pos..input_len].iter() {
+                            crate::serial::write_byte(b);
                         }
                         crate::serial::write_str("\x1b[K"); // erase to EOL
                                                             // Move cursor back to cursor_pos.
@@ -334,8 +334,8 @@ pub fn shell_prompt_loop() {
                         input_len += 1;
                         cursor_pos += 1;
                         // Redraw from cursor_pos - 1 onwards.
-                        for j in (cursor_pos - 1)..input_len {
-                            crate::serial::write_byte(input_buf[j]);
+                        for &b in input_buf[(cursor_pos - 1)..input_len].iter() {
+                            crate::serial::write_byte(b);
                         }
                         // Move cursor back to cursor_pos.
                         let move_back = input_len - cursor_pos;
