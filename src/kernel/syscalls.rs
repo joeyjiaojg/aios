@@ -450,7 +450,11 @@ fn resolve_path<'a>(path: &'a str, abs_buf: &'a mut [u8; 256]) -> &'a str {
         return path;
     }
     // Strip a leading "./" so "./foo" becomes relative "foo"
-    let rel = if let Some(rest) = path.strip_prefix("./") { rest } else { path };
+    let rel = if let Some(rest) = path.strip_prefix("./") {
+        rest
+    } else {
+        path
+    };
     if rel.is_empty() {
         return crate::shell::get_current_dir_str();
     }
@@ -459,13 +463,22 @@ fn resolve_path<'a>(path: &'a str, abs_buf: &'a mut [u8; 256]) -> &'a str {
     let cwd_b = cwd.as_bytes();
     let mut pos = 0;
     for &b in cwd_b {
-        if pos < 255 { abs_buf[pos] = b; pos += 1; }
+        if pos < 255 {
+            abs_buf[pos] = b;
+            pos += 1;
+        }
     }
     if pos > 0 && abs_buf[pos - 1] != b'/' {
-        if pos < 255 { abs_buf[pos] = b'/'; pos += 1; }
+        if pos < 255 {
+            abs_buf[pos] = b'/';
+            pos += 1;
+        }
     }
     for &b in rel.as_bytes() {
-        if pos < 255 { abs_buf[pos] = b; pos += 1; }
+        if pos < 255 {
+            abs_buf[pos] = b;
+            pos += 1;
+        }
     }
     core::str::from_utf8(&abs_buf[..pos]).unwrap_or(path)
 }

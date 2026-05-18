@@ -54,10 +54,10 @@ core::arch::global_asm!(
     "push r14",
     "push r15",
     // Shuffle rax/rdi/rsi/rdx into extern "C" argument registers for syscall_dispatch
-    "mov rcx, rdx",  // arg3 → rcx (4th C arg)
-    "mov rdx, rsi",  // arg2 → rdx (3rd C arg)
-    "mov rsi, rdi",  // arg1 → rsi (2nd C arg)
-    "mov rdi, rax",  // num  → rdi (1st C arg)
+    "mov rcx, rdx", // arg3 → rcx (4th C arg)
+    "mov rdx, rsi", // arg2 → rdx (3rd C arg)
+    "mov rsi, rdi", // arg1 → rsi (2nd C arg)
+    "mov rdi, rax", // num  → rdi (1st C arg)
     "call syscall_dispatch",
     // result returned in rax by syscall_dispatch
     "pop r15",
@@ -200,7 +200,8 @@ pub fn init() {
     unsafe {
         IDT.breakpoint.set_handler_fn(breakpoint_handler);
         IDT.double_fault.set_handler_fn(double_fault_handler);
-        IDT.page_fault.set_handler_fn(page_fault_handler)
+        IDT.page_fault
+            .set_handler_fn(page_fault_handler)
             .set_stack_index(0); // IST[0] = reliable dedicated stack
         IDT.general_protection_fault
             .set_handler_fn(general_protection_fault_handler);
@@ -363,11 +364,13 @@ extern "x86-interrupt" fn page_fault_handler(
     // # Safety: COM1 port write is always safe in ring-0.
     unsafe {
         core::arch::asm!(
-            "push rax", "push rdx",
-            "mov al, 0x21",   // '!'
-            "mov dx, 0x3F8",  // COM1
+            "push rax",
+            "push rdx",
+            "mov al, 0x21",  // '!'
+            "mov dx, 0x3F8", // COM1
             "out dx, al",
-            "pop rdx", "pop rax",
+            "pop rdx",
+            "pop rax",
             options(nostack, nomem, preserves_flags)
         );
     }
